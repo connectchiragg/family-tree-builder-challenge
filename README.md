@@ -105,10 +105,12 @@ creation. Restarting the process preserves graph data.
 ## Agent behavior and reliability
 
 The loop preserves assistant blocks and returns a result for each requested tool.
-Before returning a draft reply, one model completion check compares it with the
-current graph and executed tools, allowing missing writes to be performed or
-unsupported claims to be corrected. This adds a model call and reduces observed
-false-success replies, but remains a model-based check, not a semantic guarantee.
+There is no separate model checker. A text-only answer returns immediately.
+The main prompt specifies resolve → create → relate/correct → report, prohibits
+invented IDs/results, and distinguishes failed, unchanged, and committed facts.
+Current graph state and actual in-request tool outcomes accompany each call;
+older assistant claims are not treated as evidence of a saved write. These
+instructions improve grounding but cannot guarantee semantic correctness.
 Calls execute sequentially. Limits are eight model rounds and 24 tool calls per
 HTTP request, with a 30-second timeout per provider request and a 10-second
 connection timeout. There is no streaming; worst-case total waiting can span
@@ -176,7 +178,8 @@ The offline provider used a separate temporary database and is not shipped.
 Live OpenRouter validation passed creation, marriage, stable-ID renaming, cycle
 rejection, two same-name people, ambiguity without a write, clarified renaming,
 and atomic parent replacement. A model false-success response observed during
-the initial run motivated the completion check and its regression test. These
+the initial run motivated explicit tool-first instructions. The extra model
+checker was removed; a regression test enforces single-call text replies. These
 scenario checks are evidence for this demo, not a guarantee across all prompts.
 
 UI verification: five layout tests pass; build/lint pass; both Tree and List
