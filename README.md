@@ -33,7 +33,7 @@ available Anthropic model ID. The client appends `/v1/messages`. `PORT` and
 Without a key the graph still works; chat reports a configuration error.
 
 ```sh
-npm test                        # Java unit, MVC, SQLite and HTTP adapter tests
+npm test                        # UI layout + Java unit/integration tests
 npm run build -w client
 npm run lint -w client
 cd server && mvn package         # executable target/family-tree-1.0.0.jar
@@ -154,7 +154,11 @@ The development server is not a public deployment. Remarriage, half-siblings,
 more than two parents, and invented unknown parents are unsupported. The graph
 is loaded in full, appropriate for a small exercise. No fuzzy identity resolution,
 merge-person operation, durable chat history, undo log or full-turn transaction.
-The existing generation layout is retained. Provider model availability and
+The UI offers a top-down family tree and a grouped relationship list. Spouses
+and co-parents are aligned where ancestry permits, with independent family
+groups spaced apart. Layout grouping never implies marriage or parenthood.
+Cross-generation spouse links retain ancestry ranks; dense graphs may still
+have crossing lines, and the List view gives an unambiguous relationship readout. Provider model availability and
 semantic quality require a live check with the supplied credential.
 
 ## Validation
@@ -174,3 +178,6 @@ rejection, two same-name people, ambiguity without a write, clarified renaming,
 and atomic parent replacement. A model false-success response observed during
 the initial run motivated the completion check and its regression test. These
 scenario checks are evidence for this demo, not a guarantee across all prompts.
+
+UI verification: five layout tests pass; build/lint pass; both Tree and List
+views were inspected in the browser using the live eight-person family graph.

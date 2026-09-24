@@ -1,142 +1,110 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  MarkerType,
-} from "@xyflow/react";
+import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, useNodesInitialized } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { fetchGraph } from "../api";
+import { familyLayout, CARD_WIDTH, CARD_HEIGHT } from "../lib/familyLayout";
 
-const GEN_HEIGHT = 140;
-const NODE_WIDTH = 180;
+function PersonNode({ data }) {
+  return <div className="person-card">
+    <Handle type="target" position={Position.Top} id="child" />
+    <Handle type="source" position={Position.Bottom} id="parent" />
+    <Handle type="source" position={Position.Right} id="spouse-right" />
+    <Handle type="target" position={Position.Left} id="spouse-left" />
+    <strong title={data.name}>{data.name}</strong>
+    <span>{data.context}</span>
+  </div>;
+}
+const nodeTypes = { person: PersonNode };
 
-// Rough generation-based layout: people with no recorded parent are
-// generation 0, everyone else is one generation below their (first)
-// parent. This is just enough to render whatever the candidate's backend
-// returns readably — it is not part of the assignment.
-function layout(people, parentEdges) {
-  const childToParents = new Map();
-  for (const edge of parentEdges) {
-    if (!childToParents.has(edge.childId)) childToParents.set(edge.childId, []);
-    childToParents.get(edge.childId).push(edge.parentId);
-  }
-
-  const generation = new Map();
-  function generationOf(personId, guard = new Set()) {
-    if (generation.has(personId)) return generation.get(personId);
-    if (guard.has(personId)) return 0; // defensive: don't hang on a cycle
-    guard.add(personId);
-
-    const parents = childToParents.get(personId) || [];
-    const gen = parents.length
-      ? 1 + Math.max(...parents.map((p) => generationOf(p, new Set(guard))))
-      : 0;
-
-    generation.set(personId, gen);
-    return gen;
-  }
-
-  const byGeneration = new Map();
-  for (const person of people) {
-    const gen = generationOf(person.id);
-    if (!byGeneration.has(gen)) byGeneration.set(gen, []);
-    byGeneration.get(gen).push(person);
-  }
-
-  const positions = new Map();
-  for (const [gen, folks] of byGeneration.entries()) {
-    folks.forEach((person, i) => {
-      positions.set(person.id, {
-        x: i * NODE_WIDTH,
-        y: gen * GEN_HEIGHT,
-      });
-    });
-  }
-
-  return positions;
+function FitTree({ revision }) {
+  const { fitView } = useReactFlow();
+  const initialized = useNodesInitialized();
+  useEffect(() => {
+    if (initialized) fitView({ padding: 0.18, maxZoom: 1.1, duration: 250 });
+  }, [revision, initialized, fitView]);
+  return null;
 }
 
 export default function GraphView({ refreshSignal }) {
-  const [graph, setGraph] = useState({
-    people: [],
-    parentEdges: [],
-    spouseEdges: [],
-  });
+  const [graph, setGraph] = useState({ people: [], parentEdges: [], spouseEdges: [] });
   const [error, setError] = useState(null);
-
+  const [view, setView] = useState("tree");
   const load = useCallback(async () => {
     try {
       const data = await fetchGraph();
-      setGraph(data);
+      setGraph(previous => JSON.stringify(previous) === JSON.stringify(data) ? previous : data);
       setError(null);
-    } catch (err) {
-      console.error(err);
-      setError("Couldn't load the family tree.");
-    }
+    } catch { setError("Couldn't load the family tree."); }
   }, []);
+  useEffect(() => { load(); }, [load, refreshSignal]);
+  useEffect(() => { const timer = setInterval(load, 4000); return () => clearInterval(timer); }, [load]);
 
-  useEffect(() => {
-    load();
-  }, [load, refreshSignal]);
-
-  // Poll so edits from other tabs / the agent loop show up without a manual
-  // reload. Candidates are free to replace this with something smarter
-  // (websocket push, etc.) — it's just wiring, not part of the assignment.
-  useEffect(() => {
-    const id = setInterval(load, 4000);
-    return () => clearInterval(id);
-  }, [load]);
-
-  const { nodes, edges } = useMemo(() => {
-    const positions = layout(graph.people, graph.parentEdges);
-
-    const nodes = graph.people.map((person) => ({
-      id: person.id,
-      data: { label: person.name },
-      position: positions.get(person.id) || { x: 0, y: 0 },
-      style: {
-        border: "1px solid #6366f1",
-        borderRadius: 8,
-        padding: 8,
-        background: "#eef2ff",
-        color: "#1e1b4b",
-        fontSize: 13,
-      },
+  const { nodes, edges, families, relations } = useMemo(() => {
+    const { positions, families } = familyLayout(graph);
+    const names = new Map(graph.people.map(p => [p.id, p.name]));
+    const relations = new Map(graph.people.map(p => [p.id, { parents: [], children: [], spouses: [] }]));
+    graph.parentEdges.forEach(e => {
+      relations.get(e.childId)?.parents.push(e.parentId);
+      relations.get(e.parentId)?.children.push(e.childId);
+    });
+    graph.spouseEdges.forEach(e => {
+      relations.get(e.personAId)?.spouses.push(e.personBId);
+      relations.get(e.personBId)?.spouses.push(e.personAId);
+    });
+    const describe = ids => ids.map(id => names.get(id)).join(" & ");
+    const nodes = graph.people.map(p => ({
+      id: p.id, type: "person", position: positions.get(p.id),
+      data: { name: p.name, context: relations.get(p.id).parents.length ? `Child of ${describe(relations.get(p.id).parents)}` : "No parents recorded" },
+      width: CARD_WIDTH, height: CARD_HEIGHT,
     }));
-
-    const parentEdges = graph.parentEdges.map((e) => ({
-      id: `p-${e.parentId}-${e.childId}`,
-      source: e.parentId,
-      target: e.childId,
-      markerEnd: { type: MarkerType.ArrowClosed },
-      style: { stroke: "#6366f1" },
+    const edges = graph.parentEdges.map(e => ({
+      id: `parent-${e.parentId}-${e.childId}`, source: e.parentId, target: e.childId,
+      sourceHandle: "parent", targetHandle: "child", type: "smoothstep",
+      pathOptions: { borderRadius: 0 }, className: "parent-line",
+      ariaLabel: `${names.get(e.parentId)} is a parent of ${names.get(e.childId)}`,
     }));
-
-    const spouseEdges = graph.spouseEdges.map((e) => ({
-      id: `s-${e.personAId}-${e.personBId}`,
-      source: e.personAId,
-      target: e.personBId,
-      type: "straight",
-      style: { stroke: "#ec4899", strokeDasharray: "4 4" },
-    }));
-
-    return { nodes, edges: [...parentEdges, ...spouseEdges] };
+    graph.spouseEdges.forEach(e => {
+      const a = positions.get(e.personAId), b = positions.get(e.personBId);
+      const left = a.x <= b.x ? e.personAId : e.personBId;
+      const right = left === e.personAId ? e.personBId : e.personAId;
+      edges.push({ id: `spouse-${left}-${right}`, source: left, target: right,
+        sourceHandle: "spouse-right", targetHandle: "spouse-left", type: a.y === b.y ? "straight" : "smoothstep",
+        className: "spouse-line", ariaLabel: `${names.get(left)} and ${names.get(right)} are spouses`,
+      });
+    });
+    return { nodes, edges, families, relations };
   }, [graph]);
+  const names = new Map(graph.people.map(p => [p.id, p.name]));
+  const label = ids => ids.length ? ids.map(id => names.get(id)).join(", ") : "None recorded";
 
-  return (
-    <div className="graph-panel">
-      {error && <div className="chat-error">{error}</div>}
-      {graph.people.length === 0 && !error && (
-        <div className="graph-empty">
-          No family tree data yet. As the assistant records people and
-          relationships, they'll appear here.
-        </div>
-      )}
-      <ReactFlow nodes={nodes} edges={edges} fitView>
-        <Background />
-        <Controls />
-      </ReactFlow>
+  return <section className="graph-panel" aria-label="Family relationships">
+    <div className="family-toolbar">
+      <div><h2>Your family</h2><p>{graph.people.length} people · {families.length} family {families.length === 1 ? "group" : "groups"}</p></div>
+      <div className="view-switch" aria-label="Family view">
+        <button onClick={() => setView("tree")} aria-pressed={view === "tree"}>Tree</button>
+        <button onClick={() => setView("list")} aria-pressed={view === "list"}>List</button>
+      </div>
     </div>
-  );
+    {error && <div className="chat-error" role="alert">{error}</div>}
+    {graph.people.length === 0 ? <div className="family-empty"><strong>Your family starts here</strong><p>Tell the assistant about a person and their relationships.</p></div>
+      : view === "tree" ? <>
+        <div className="tree-legend"><span><i className="parent-key" /> Parent to child, top to bottom</span><span><i className="spouse-key" /> Spouses</span></div>
+        <div className="tree-canvas">
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.2} maxZoom={1.5}
+            nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false} elementsSelectable={false}>
+            <Background gap={24} size={1} /><Controls showInteractive={false} /><FitTree revision={graph} />
+          </ReactFlow>
+        </div>
+      </> : <div className="relationship-list">
+        {families.map((family, index) => <section className="family-list-group" key={family.ids[0]}>
+          <h3>Family group {index + 1}</h3>
+          {family.ids.map(id => <article className="relationship-person" key={id}>
+            <h4>{names.get(id)}</h4>
+            <dl><div><dt>Parents</dt><dd>{label(relations.get(id).parents)}</dd></div>
+              <div><dt>Spouse</dt><dd>{label(relations.get(id).spouses)}</dd></div>
+              <div><dt>Children</dt><dd>{label(relations.get(id).children)}</dd></div></dl>
+          </article>)}
+        </section>)}
+      </div>}
+  </section>;
 }
