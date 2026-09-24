@@ -30,7 +30,7 @@ function layout(people, parentEdges) {
 
     const parents = childToParents.get(personId) || [];
     const gen = parents.length
-      ? 1 + Math.max(...parents.map((p) => generationOf(p, guard)))
+      ? 1 + Math.max(...parents.map((p) => generationOf(p, new Set(guard))))
       : 0;
 
     generation.set(personId, gen);
@@ -100,6 +100,7 @@ export default function GraphView({ refreshSignal }) {
         borderRadius: 8,
         padding: 8,
         background: "#eef2ff",
+        color: "#1e1b4b",
         fontSize: 13,
       },
     }));

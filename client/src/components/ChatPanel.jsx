@@ -32,7 +32,7 @@ export default function ChatPanel({ onGraphMightHaveChanged }) {
       onGraphMightHaveChanged?.();
     } catch (err) {
       console.error(err);
-      setError("Something went wrong talking to the model.");
+      setError(err.message || "Something went wrong talking to the model.");
     } finally {
       setIsSending(false);
     }

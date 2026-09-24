@@ -6,7 +6,8 @@ export async function sendChatMessage(messages) {
   });
 
   if (!res.ok) {
-    throw new Error(`Chat request failed: ${res.status}`);
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Chat request failed: ${res.status}`);
   }
 
   return res.json();
