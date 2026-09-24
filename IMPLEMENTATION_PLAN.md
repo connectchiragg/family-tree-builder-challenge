@@ -10,5 +10,5 @@ bounded agent loop; HTTP provider adapter; API validation; frontend error messag
 unit/integration tests and README walkthrough.
 
 See README for architecture, reading order, verification commands and explicit
-limitations. Live model validation requires the supplied credential in
-`server/.env`; an offline test provider is not a substitute for that sign-off.
+limitations. Live OpenRouter validation has passed the README scenarios. The supplied key
+is kept only in ignored `server/.env`; it is never shipped to the browser or Git.

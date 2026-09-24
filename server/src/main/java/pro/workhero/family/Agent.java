@@ -30,6 +30,7 @@ public class Agent {
         Full siblings share known parents only when the user's statement establishes that relationship.
         Remarriage, half-siblings and unknown parents are unsupported: explain the limitation or clarify.
         Tool errors are not success. Explain rejected cycles and parent limits. Finish with a concise factual reply.
+        Keep internal IDs and implementation details out of replies unless the user explicitly asks for them.
         """;
 
   private record Executed(String name, JsonNode input, JsonNode result) {}
@@ -52,6 +53,7 @@ public class Agent {
     var messages = (ArrayNode) history.deepCopy();
     var executed = new HashMap<String, Executed>();
     int calls = 0;
+    boolean reviewed = false;
     try {
       for (int round = 0; round < MAX_ROUNDS; round++) {
         var response =
@@ -75,6 +77,23 @@ public class Agent {
                   .strip();
           if (text.isEmpty())
             throw new HttpModelClient.Unavailable("Model returned an empty reply.");
+          if (!reviewed) {
+            reviewed = true;
+            messages.addObject().put("role", "assistant").set("content", content);
+            messages
+                .addObject()
+                .put("role", "user")
+                .put(
+                    "content",
+                    "Internal completion check: compare your draft against the current database in the system context. "
+                        + "Only actual tool calls save facts; text and invented IDs do not. "
+                        + "This turn executed these tool calls: "
+                        + executed.values().stream().map(Executed::name).toList()
+                        + ". If you claimed an unsaved change, perform the necessary tools now, or explain why you cannot. "
+                        + "Otherwise give the final concise response, asking for clarification when needed. "
+                        + "Do not mention this internal check.");
+            continue;
+          }
           return text;
         }
         if (calls + uses.size() > MAX_CALLS)

@@ -45,7 +45,7 @@ class AgentTest {
   void runsToolsAndReturnsAllTextWithoutMutatingHistory() throws Exception {
     var responses =
         new ArrayDeque<JsonNode>(
-            List.of(call("1", "create_person", "{\"name\":\"Alice\"}"), text()));
+            List.of(call("1", "create_person", "{\"name\":\"Alice\"}"), text(), text()));
     when(store.create("Alice")).thenReturn(new Family.Person("a", "Alice"));
     var sent = new ArrayList<JsonNode>();
     ModelClient model =
@@ -63,7 +63,7 @@ class AgentTest {
   @Test
   void repeatedToolIdReplaysResultWithoutRepeatingWrite() throws Exception {
     var call = call("1", "create_person", "{\"name\":\"Alice\"}");
-    var responses = new ArrayDeque<>(List.of(call, call, text()));
+    var responses = new ArrayDeque<>(List.of(call, call, text(), text()));
     new Agent((m, t, s) -> responses.removeFirst(), tools, store, json).reply(history());
     verify(store, times(1)).create("Alice");
   }
@@ -125,5 +125,27 @@ class AgentTest {
     var result = tools.execute("create_person", parse("{\"name\":\"Alice\"}"));
     assertTrue(result.error());
     assertEquals("INVALID_INPUT", json.valueToTree(result.value()).path("code").asText());
+  }
+
+  @Test
+  void completionCheckCanRecoverAnUnexecutedWriteClaim() throws Exception {
+    var responses =
+        new ArrayDeque<>(
+            List.of(text(), call("1", "create_person", "{\"name\":\"Alice\"}"), text()));
+    var prompts = new ArrayList<JsonNode>();
+    ModelClient model =
+        (m, t, s) -> {
+          prompts.add(m.deepCopy());
+          return responses.removeFirst();
+        };
+    assertEquals("Saved.\nDone.", new Agent(model, tools, store, json).reply(history()));
+    assertTrue(
+        prompts
+            .get(1)
+            .get(2)
+            .path("content")
+            .asText()
+            .contains("Only actual tool calls save facts"));
+    verify(store).create("Alice");
   }
 }

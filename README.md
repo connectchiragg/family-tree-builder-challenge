@@ -105,6 +105,10 @@ creation. Restarting the process preserves graph data.
 ## Agent behavior and reliability
 
 The loop preserves assistant blocks and returns a result for each requested tool.
+Before returning a draft reply, one model completion check compares it with the
+current graph and executed tools, allowing missing writes to be performed or
+unsupported claims to be corrected. This adds a model call and reduces observed
+false-success replies, but remains a model-based check, not a semantic guarantee.
 Calls execute sequentially. Limits are eight model rounds and 24 tool calls per
 HTTP request, with a 30-second timeout per provider request and a 10-second
 connection timeout. There is no streaming; worst-case total waiting can span
@@ -161,8 +165,12 @@ API input validation, tool dispatch errors, repeated tool IDs, bounded iteration
 all final text blocks, and actual HTTP protocol against a local stub provider.
 A local stub verifies wiring only; it does not establish live-model correctness.
 
-Verified locally: all 18 Java tests pass; frontend build and lint pass. Browser
+Verified locally: all 19 Java tests pass; frontend build and lint pass. Browser
 verification with an explicitly labeled offline provider rendered three people
 and two parent edges. A full server restart preserved the same graph and IDs.
 The offline provider used a separate temporary database and is not shipped.
-Live provider/ambiguity validation is pending the supplied API key.
+Live OpenRouter validation passed creation, marriage, stable-ID renaming, cycle
+rejection, two same-name people, ambiguity without a write, clarified renaming,
+and atomic parent replacement. A model false-success response observed during
+the initial run motivated the completion check and its regression test. These
+scenario checks are evidence for this demo, not a guarantee across all prompts.
