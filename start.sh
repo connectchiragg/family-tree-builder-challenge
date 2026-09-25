@@ -42,5 +42,5 @@ chmod 600 server/.env
 
 echo "Installing dependencies…"
 npm ci
-echo "Starting Family Tree Builder at http://localhost:5173 — press Ctrl+C to stop."
+echo "Starting Family Tree Builder at http://127.0.0.1:5173 — press Ctrl+C to stop."
 exec npm run dev

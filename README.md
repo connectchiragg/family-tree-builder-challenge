@@ -16,7 +16,7 @@ The script installs Node dependencies, prompts for your **OpenRouter API key** o
 
 Run `./start.sh` again for subsequent starts, or `npm run dev` to skip dependency installation.
 
-Open **http://localhost:5173**. This starts both the frontend and Java backend (port **3001**). Stop them with **Ctrl+C**. Check backend health at http://localhost:3001/api/health.
+Open **http://127.0.0.1:5173**. This starts both the frontend and Java backend (port **3001**). Stop them with **Ctrl+C**. Check backend health at http://localhost:3001/api/health.
 
 Try: “My name is Maya. My parents are Ravi and Anitha. They are married, and my brother Arjun shares both parents.”
 
