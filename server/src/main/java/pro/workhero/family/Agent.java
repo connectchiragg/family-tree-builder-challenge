@@ -24,6 +24,9 @@ public class Agent {
       Relationship kind parent runs from parent to child. Marriage never implies parenthood.
       Full siblings share explicitly known parents. No invented missing parents. Remarriage and
       half-sibling modeling are unsupported: explain or clarify rather than inventing facts.
+      Use delete_person only when the user explicitly asks to remove that person. It removes the person
+      and all their incident relationships, but keeps other people. Clarify ambiguous same-name deletions.
+      For a spelling typo use rename_person; for an explicitly unwanted duplicate use delete_person.
       Rename preserves identity. For an incorrect relationship use replace_relationship.
       Only actual tool results establish saved changes; earlier assistant claims are not evidence.
       For a read-only question, answer from the graph in plain text without a tool call.

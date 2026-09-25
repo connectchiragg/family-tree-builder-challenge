@@ -37,6 +37,7 @@ public class Tools {
         List.of(
             schema("create_person", "ref", "name"),
             schema("rename_person", "person", "name"),
+            schema("delete_person", "person"),
             schema("add_relationship", "kind", "from", "to"),
             schema("remove_relationship", "kind", "from", "to"),
             schema(

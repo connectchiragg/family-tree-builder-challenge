@@ -55,6 +55,7 @@ public class FamilyStore {
               "Each new person needs a unique @reference.");
           refs.put(c.ref(), draft.create(c.name()).id());
         }
+        case Plan.DeletePerson d -> draft.delete(resolve(d.person(), refs, draft));
         case Plan.RenamePerson r -> draft.rename(resolve(r.person(), refs, draft), r.name());
         case Plan.AddRelationship a -> draft.add(edge(a.kind(), a.from(), a.to(), refs, draft));
         case Plan.RemoveRelationship r ->
@@ -141,6 +142,9 @@ public class FamilyStore {
             "DELETE FROM spouse_edge WHERE person_a_id=? AND person_b_id=?",
             e.personAId(),
             e.personBId());
+    for (var p : before.people())
+      if (after.people().stream().noneMatch(current -> current.id().equals(p.id())))
+        db.update("DELETE FROM person WHERE id=?", p.id());
     for (var p : after.people())
       if (!before.people().contains(p))
         db.update(

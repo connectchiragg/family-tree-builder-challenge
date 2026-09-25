@@ -81,6 +81,7 @@ Supported operations:
 | --- | --- |
 | `create_person` | `ref`, `name` |
 | `rename_person` | `person`, `name` |
+| `delete_person` | `person` |
 | `add_relationship` | `kind`, `from`, `to` |
 | `remove_relationship` | `kind`, `from`, `to` |
 | `replace_relationship` | `oldKind`, `oldFrom`, `oldTo`, `newKind`, `newFrom`, `newTo` |
@@ -120,7 +121,9 @@ prove that an existing ID represents the intended person.
 Business rules check existing endpoints, no self-relationships, no directed parent
 cycles, at most two parents per child, and no multiple spouses. Duplicate edges are
 no-ops. Spouse pairs are canonical and never imply parent edges. Name corrections
-preserve IDs and relationships. Replacement requires the old edge to exist.
+preserve IDs and relationships. Explicit person deletion removes that person and
+all their parent/spouse edges, preserving every other person (including namesakes).
+Deletion is included in full-batch validation and atomic persistence. Replacement requires the old edge to exist.
 
 ## Reliability and limits
 
@@ -135,9 +138,9 @@ is ephemeral. Remarriage, half-siblings and invented unknown parents are outside
 scope. The model sees the full small graph; this is not intended for large datasets.
 Type safety and graph constraints do not guarantee correct language interpretation.
 
-The UI offers a top-down tree and grouped relationship list. Spouses and co-parents
+The UI offers a top-down family tree. Spouses and co-parents
 are aligned where ancestry permits; presentation never invents relationships.
-Dense graphs may have crossing/overlapping connectors; the list shows exact facts.
+Dense graphs may still have crossing/overlapping connectors.
 
 Logs contain request ID, model-call count, duration and error codes, not chat bodies
 or credentials. `/api/health` checks the database. Production work would add provider
@@ -168,3 +171,6 @@ The frontend has five layout tests plus build/lint checks.
 
 Live verification results are recorded in the PR. The key remains only in ignored
 local `server/.env`, never in browser code or source control.
+
+To remove an accidental person, ask “Delete [name] from the tree.” Ambiguous
+names require clarification. For spelling corrections, ask to rename instead.

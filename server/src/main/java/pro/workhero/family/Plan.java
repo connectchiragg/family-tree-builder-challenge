@@ -9,6 +9,7 @@ public record Plan(List<Operation> operations) {
   @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
   @JsonSubTypes({
     @JsonSubTypes.Type(value = CreatePerson.class, name = "create_person"),
+    @JsonSubTypes.Type(value = DeletePerson.class, name = "delete_person"),
     @JsonSubTypes.Type(value = RenamePerson.class, name = "rename_person"),
     @JsonSubTypes.Type(value = AddRelationship.class, name = "add_relationship"),
     @JsonSubTypes.Type(value = RemoveRelationship.class, name = "remove_relationship"),
@@ -17,11 +18,14 @@ public record Plan(List<Operation> operations) {
   public sealed interface Operation
       permits CreatePerson,
           RenamePerson,
+          DeletePerson,
           AddRelationship,
           RemoveRelationship,
           ReplaceRelationship {}
 
   public record CreatePerson(String ref, String name) implements Operation {}
+
+  public record DeletePerson(String person) implements Operation {}
 
   public record RenamePerson(String person, String name) implements Operation {}
 

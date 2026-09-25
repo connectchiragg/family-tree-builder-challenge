@@ -221,4 +221,51 @@ class FamilyStoreTest {
     store.apply(new Plan(java.util.List.of(new Plan.RenamePerson(person.id(), "Latest edit"))));
     assertEquals(person.id(), store.find("Latest edit").getFirst().id());
   }
+
+  @Test
+  void deletePersonRemovesIncidentEdgesButKeepsNamesakesAndOtherPeople() {
+    var john = store.create("John");
+    var otherJohn = store.create("John");
+    var parent = store.create("Parent");
+    var spouse = store.create("Spouse");
+    var child = store.create("Child");
+    store.add(parent(parent, john));
+    store.add(parent(john, child));
+    store.add(new Relationship("spouse", john.id(), spouse.id()));
+    store.add(parent(parent, otherJohn));
+    store.apply(new Plan(java.util.List.of(new Plan.DeletePerson(john.id()))));
+    assertEquals(java.util.List.of(otherJohn), store.find("John"));
+    assertEquals(4, store.graph().people().size());
+    assertEquals(
+        java.util.List.of(new ParentEdge(parent.id(), otherJohn.id())),
+        store.graph().parentEdges());
+    assertTrue(store.graph().spouseEdges().isEmpty());
+  }
+
+  @Test
+  void failedBatchAfterDeletionLeavesOriginalPersonAndEdgesUntouched() {
+    var a = store.create("A");
+    var b = store.create("B");
+    store.add(parent(a, b));
+    var before = store.graph();
+    org.mockito.Mockito.clearInvocations(db);
+    assertThrows(
+        Invalid.class,
+        () ->
+            store.apply(
+                new Plan(
+                    java.util.List.of(
+                        new Plan.DeletePerson(a.id()),
+                        new Plan.RenamePerson(a.id(), "Cannot rename deleted person")))));
+    assertEquals(before, store.graph());
+    assertTrue(
+        org.mockito.Mockito.mockingDetails(db).getInvocations().stream()
+            .noneMatch(i -> i.getMethod().getName().equals("update")));
+    assertEquals(
+        "PERSON_NOT_FOUND",
+        assertThrows(
+                Invalid.class,
+                () -> store.apply(new Plan(java.util.List.of(new Plan.DeletePerson("missing")))))
+            .code);
+  }
 }

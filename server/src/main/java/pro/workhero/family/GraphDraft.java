@@ -22,6 +22,13 @@ final class GraphDraft {
     return person;
   }
 
+  void delete(String id) {
+    exists(id);
+    parents.removeIf(e -> e.parentId().equals(id) || e.childId().equals(id));
+    spouses.removeIf(e -> e.personAId().equals(id) || e.personBId().equals(id));
+    people.remove(id);
+  }
+
   Person rename(String id, String name) {
     exists(id);
     var person = new Person(id, validName(name));
