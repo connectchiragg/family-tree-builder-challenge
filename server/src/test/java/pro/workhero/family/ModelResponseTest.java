@@ -5,14 +5,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.fasterxml.jackson.databind.*;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
-import java.nio.file.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
 
-class StructuredOutputTest {
+class ModelResponseTest {
   static final ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
-  final StructuredOutput output = new StructuredOutput(factory.getValidator());
   final ObjectMapper json = new ObjectMapper();
+  final ModelClient client =
+      new ModelClient(
+          json,
+          new org.springframework.mock.env.MockEnvironment(),
+          new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+          factory.getValidator());
 
   @AfterAll
   static void close() {
@@ -20,7 +24,7 @@ class StructuredOutputTest {
   }
 
   ModelResponse read(String input) throws Exception {
-    return output.read(json.readTree(input), ModelResponse.class);
+    return client.parse(json.readTree(input));
   }
 
   @Test
@@ -66,7 +70,7 @@ class StructuredOutputTest {
             "{\"operations\":[{\"type\":\"unknown\"}]}",
             "{\"operations\":[{\"type\":\"add_relationship\",\"kind\":\"sibling\",\"from\":\"a\",\"to\":\"b\"}]}",
             "{\"operations\":[{\"type\":\"add_relationship\",\"kind\":0,\"from\":\"a\",\"to\":\"b\"}]}"))
-      assertThrows(HttpModelClient.Unavailable.class, () -> read(input), input);
+      assertThrows(ModelClient.Unavailable.class, () -> read(input), input);
   }
 
   @Test
@@ -74,34 +78,28 @@ class StructuredOutputTest {
     var input = json.createObjectNode();
     input.putArray("operations");
     input.put("message", "a".repeat(2000));
-    output.read(input, ModelResponse.class);
+    client.parse(input);
     input.put("message", "a".repeat(2001));
-    assertThrows(HttpModelClient.Unavailable.class, () -> output.read(input, ModelResponse.class));
+    assertThrows(ModelClient.Unavailable.class, () -> client.parse(input));
     input.remove("message");
     var operations = input.withArray("operations");
     for (int i = 0; i < 40; i++)
       operations.addObject().put("type", "delete_person").put("person", "id" + i);
-    assertEquals(40, output.read(input, ModelResponse.class).operations().size());
+    assertEquals(40, client.parse(input).operations().size());
     operations.addObject().put("type", "delete_person").put("person", "41");
-    assertThrows(HttpModelClient.Unavailable.class, () -> output.read(input, ModelResponse.class));
+    assertThrows(ModelClient.Unavailable.class, () -> client.parse(input));
     assertThrows(
-        HttpModelClient.Unavailable.class,
+        ModelClient.Unavailable.class,
         () ->
             read(
                 "{\"operations\":[{\"type\":\"create_person\",\"ref\":\"@a\",\"name\":\""
                     + "a".repeat(121)
                     + "\"}]}"));
-    assertThrows(
-        HttpModelClient.Unavailable.class,
-        () ->
-            output.read(
-                json.readTree("{\"message\":\"Hi\",\"operations\":[]}"),
-                ModelResponse.Answer.class));
   }
 
   @Test
-  void schemaComesFromTypesAndConstraints() throws Exception {
-    var schema = output.schema(ModelResponse.class);
+  void schemaKeepsTheSixOperationContract() throws Exception {
+    var schema = json.valueToTree(ModelResponse.schema());
     assertEquals(40, schema.path("properties").path("operations").path("maxItems").asInt());
     assertTrue(schema.path("required").toString().contains("operations"));
     assertFalse(schema.path("required").toString().contains("message"));
@@ -109,6 +107,7 @@ class StructuredOutputTest {
     assertTrue(schema.toString().contains("create_person"));
     assertTrue(schema.toString().contains("parent"));
     assertFalse(schema.path("additionalProperties").asBoolean(true));
-    Files.writeString(Path.of("target/model-response-schema.json"), schema.toPrettyString());
+    assertEquals(
+        6, schema.path("properties").path("operations").path("items").path("oneOf").size());
   }
 }

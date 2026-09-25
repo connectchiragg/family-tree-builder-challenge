@@ -10,6 +10,6 @@ CREATE TABLE IF NOT EXISTS spouse_edge (
 CREATE TABLE IF NOT EXISTS request_history (
  request_id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL,
  status TEXT NOT NULL CHECK(status IN ('processing','applied','completed','failed')),
- execution_result TEXT, reply TEXT, error_code TEXT, duration_ms INTEGER,
+ reply TEXT, error_code TEXT, duration_ms INTEGER,
  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );

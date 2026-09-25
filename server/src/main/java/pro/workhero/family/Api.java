@@ -71,8 +71,8 @@ public class Api {
         .body(Map.of("error", e.getMessage(), "code", e.code));
   }
 
-  @ExceptionHandler(HttpModelClient.Unavailable.class)
-  ResponseEntity<?> unavailable(HttpModelClient.Unavailable e) {
+  @ExceptionHandler(ModelClient.Unavailable.class)
+  ResponseEntity<?> unavailable(ModelClient.Unavailable e) {
     return ResponseEntity.status(502)
         .body(Map.of("error", e.getMessage(), "code", "MODEL_UNAVAILABLE"));
   }

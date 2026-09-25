@@ -12,7 +12,6 @@ class AgentTest {
   final FamilyStore store = mock(FamilyStore.class);
   final ModelClient model = mock(ModelClient.class);
   final Family.Graph graph = new Family.Graph(List.of(), List.of(), List.of());
-  final Tools tools = new Tools();
 
   @BeforeEach
   void setup() {
@@ -28,27 +27,26 @@ class AgentTest {
   }
 
   Agent agent() {
-    return new Agent(model, tools, store, json);
+    return new Agent(model, store, json);
   }
 
   @Test
   void plainMutationUsesOneCallAndPreservesHistory() throws Exception {
-    when(model.complete(any(), anyString(), eq(ModelResponse.class))).thenReturn(plan(null));
+    when(model.plan(any(), anyString())).thenReturn(plan(null));
     when(store.apply(any())).thenReturn(new FamilyStore.Applied(Map.of("@a", "a"), graph));
     var history = history();
-    assertEquals("Saved 1 requested change(s).", agent().reply(history));
+    assertEquals("Saved 1 requested change(s).", agent().reply(history, "test", store::apply));
     assertEquals(1, history.size());
-    verify(model, times(1)).complete(eq(history), anyString(), eq(ModelResponse.class));
+    verify(model, times(1)).plan(eq(history), anyString());
     verifyNoMoreInteractions(model);
     verify(store).apply(any());
   }
 
   @Test
   void mutationWithQuestionSendsOnlyQuestionAndSavedGraphToSecondCall() throws Exception {
-    when(model.complete(any(), anyString(), eq(ModelResponse.class)))
-        .thenReturn(plan("Who are Alice's parents?"));
+    when(model.plan(any(), anyString())).thenReturn(plan("Who are Alice's parents?"));
     when(store.apply(any())).thenReturn(new FamilyStore.Applied(Map.of(), graph));
-    when(model.complete(any(), anyString(), eq(ModelResponse.Answer.class)))
+    when(model.answer(any(), anyString()))
         .thenAnswer(
             call -> {
               JsonNode messages = call.getArgument(0);
@@ -56,55 +54,57 @@ class AgentTest {
               assertTrue(
                   messages.get(0).path("content").asText().contains("Who are Alice's parents?"));
               assertFalse(messages.toString().contains("Add Alice"));
-              return new ModelResponse.Answer("No parents recorded.");
+              return "No parents recorded.";
             });
-    assertEquals("Saved 1 requested change(s).\nNo parents recorded.", agent().reply(history()));
-    verify(model).complete(any(), anyString(), eq(ModelResponse.Answer.class));
+    assertEquals(
+        "Saved 1 requested change(s).\nNo parents recorded.",
+        agent().reply(history(), "test", store::apply));
+    verify(model).answer(any(), anyString());
     verify(store).apply(any());
   }
 
   @Test
   void clarificationNeedsOneCallAndNoExecution() throws Exception {
-    when(model.complete(any(), anyString(), eq(ModelResponse.class)))
+    when(model.plan(any(), anyString()))
         .thenReturn(new ModelResponse("Which John do you mean?", List.of(), null));
-    assertEquals("Which John do you mean?", agent().reply(history()));
+    assertEquals("Which John do you mean?", agent().reply(history(), "test", store::apply));
     verify(store, never()).apply(any());
-    verify(model, times(1)).complete(any(), anyString(), eq(ModelResponse.class));
+    verify(model, times(1)).plan(any(), anyString());
     verifyNoMoreInteractions(model);
   }
 
   @Test
   void invalidPlanIsExplainedWithoutRepairOrRetry() throws Exception {
-    when(model.complete(any(), anyString(), eq(ModelResponse.class))).thenReturn(plan(null));
+    when(model.plan(any(), anyString())).thenReturn(plan(null));
     when(store.apply(any()))
         .thenThrow(new InvalidFamilyOperationException("PERSON_NOT_FOUND", "Unknown person."));
-    assertEquals("Nothing was saved. Unknown person.", agent().reply(history()));
+    assertEquals(
+        "Nothing was saved. Unknown person.", agent().reply(history(), "test", store::apply));
     verify(store, times(1)).apply(any());
-    verify(model, times(1)).complete(any(), anyString(), eq(ModelResponse.class));
+    verify(model, times(1)).plan(any(), anyString());
     verifyNoMoreInteractions(model);
   }
 
   @Test
   void failedAnswerStillConfirmsSaveAndDoesNotRetry() throws Exception {
-    when(model.complete(any(), anyString(), eq(ModelResponse.class)))
-        .thenReturn(plan("Who are Alice's parents?"));
+    when(model.plan(any(), anyString())).thenReturn(plan("Who are Alice's parents?"));
     when(store.apply(any())).thenReturn(new FamilyStore.Applied(Map.of(), graph));
-    when(model.complete(any(), anyString(), eq(ModelResponse.Answer.class)))
-        .thenThrow(new HttpModelClient.Unavailable("Invalid answer"));
+    when(model.answer(any(), anyString())).thenThrow(new ModelClient.Unavailable("Invalid answer"));
     assertEquals(
         "Saved 1 requested change(s). I couldn't generate the answer; your changes are saved in the family view.",
-        agent().reply(history()));
+        agent().reply(history(), "test", store::apply));
     verify(store, times(1)).apply(any());
-    verify(model).complete(any(), anyString(), eq(ModelResponse.class));
-    verify(model).complete(any(), anyString(), eq(ModelResponse.Answer.class));
+    verify(model).plan(any(), anyString());
+    verify(model).answer(any(), anyString());
     verifyNoMoreInteractions(model);
   }
 
   @Test
   void malformedProviderResponseDoesNotReachPersistence() throws Exception {
-    when(model.complete(any(), anyString(), eq(ModelResponse.class)))
-        .thenThrow(new HttpModelClient.Unavailable("Malformed response"));
-    assertThrows(HttpModelClient.Unavailable.class, () -> agent().reply(history()));
+    when(model.plan(any(), anyString()))
+        .thenThrow(new ModelClient.Unavailable("Malformed response"));
+    assertThrows(
+        ModelClient.Unavailable.class, () -> agent().reply(history(), "test", store::apply));
     verify(store, never()).apply(any());
   }
 }

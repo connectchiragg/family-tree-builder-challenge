@@ -46,16 +46,6 @@ if [[ "$ready" != true ]]; then
   exit 1
 fi
 
-metrics_url="http://127.0.0.1:3001/admin/"
-echo "Backend ready. Metrics: $metrics_url"
-# Browser opening is optional on headless machines and must not stop the servers.
-case "$(uname -s)" in
-  Darwin) open "$metrics_url" || true ;;
-  Linux) if command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$metrics_url" >/dev/null 2>&1 &
-  fi ;;
-  *) echo "Open $metrics_url in your browser to inspect metrics." ;;
-esac
 echo "Opening UI at http://127.0.0.1:5173"
 ./node_modules/.bin/concurrently --kill-others "npm run dev:client" &
 ui_pid=$!

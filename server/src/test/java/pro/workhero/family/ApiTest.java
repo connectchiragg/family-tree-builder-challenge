@@ -49,7 +49,7 @@ class ApiTest {
     http.perform(post("/api/chat").contentType("application/json").content(body))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.reply").value("Hello"));
-    when(agent.reply(any(), any())).thenThrow(new HttpModelClient.Unavailable("Timed out."));
+    when(agent.reply(any(), any())).thenThrow(new ModelClient.Unavailable("Timed out."));
     http.perform(post("/api/chat").contentType("application/json").content(body))
         .andExpect(status().isBadGateway())
         .andExpect(jsonPath("$.code").value("MODEL_UNAVAILABLE"));

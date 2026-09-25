@@ -12,10 +12,9 @@ import java.util.concurrent.atomic.*;
 import org.junit.jupiter.api.*;
 import org.springframework.mock.env.MockEnvironment;
 
-class HttpModelClientTest {
+class ModelClientTest {
   static final ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
   final ObjectMapper json = new ObjectMapper();
-  final StructuredOutput output = new StructuredOutput(factory.getValidator());
   final io.micrometer.core.instrument.simple.SimpleMeterRegistry metrics =
       new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
   final AtomicReference<String> received = new AtomicReference<>();
@@ -34,7 +33,7 @@ class HttpModelClientTest {
     factory.close();
   }
 
-  HttpModelClient client(int status, String response) throws Exception {
+  ModelClient client(int status, String response) throws Exception {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/v1/messages",
@@ -55,7 +54,7 @@ class HttpModelClientTest {
             .withProperty("ANTHROPIC_MODEL", "test-model")
             .withProperty(
                 "ANTHROPIC_BASE_URL", "http://127.0.0.1:" + server.getAddress().getPort());
-    return new HttpModelClient(json, env, metrics, output);
+    return new ModelClient(json, env, metrics, factory.getValidator());
   }
 
   String reply(String input) {
@@ -65,19 +64,18 @@ class HttpModelClientTest {
   }
 
   @Test
-  void sendsGeneratedSchemaAndReturnsValidatedAnswer() throws Exception {
-    var client = client(200, reply("{\"message\":\"Hello\"}"));
-    var result = client.complete(json.createArrayNode(), "system", ModelResponse.Answer.class);
-    assertEquals("Hello", result.message());
+  void answerHasNoToolsAndRecordsUsage() throws Exception {
+    var client =
+        client(
+            200,
+            "{\"stop_reason\":\"end_turn\",\"content\":[{\"type\":\"text\",\"text\":\"Hello\"}],\"usage\":{\"input_tokens\":12,\"output_tokens\":3}}");
+    var result = client.answer(json.createArrayNode(), "system");
+    assertEquals("Hello", result);
     var payload = json.readTree(received.get());
     assertEquals("test-model", payload.path("model").asText());
     assertEquals("test-key", apiKey.get());
-    assertEquals(
-        output.schema(ModelResponse.Answer.class),
-        payload.path("tools").get(0).path("input_schema"));
-    assertEquals("respond", payload.path("tool_choice").path("name").asText());
-    assertEquals("tool", payload.path("tool_choice").path("type").asText());
-    assertTrue(payload.path("tool_choice").path("disable_parallel_tool_use").asBoolean());
+    assertFalse(payload.has("tools"));
+    assertEquals("none", payload.path("tool_choice").path("type").asText());
     assertEquals(1, calls.get());
     assertEquals(
         1,
@@ -98,23 +96,27 @@ class HttpModelClientTest {
             200,
             reply(
                 "{\"message\":null,\"operations\":[{\"type\":\"create_person\",\"ref\":\"@a\",\"name\":\"Alice\"}]}"));
-    var response = client.complete(json.createArrayNode(), "system", ModelResponse.class);
+    var response = client.plan(json.createArrayNode(), "system");
     assertInstanceOf(Plan.CreatePerson.class, response.operations().getFirst());
+    var payload = json.readTree(received.get());
+    assertEquals(
+        json.valueToTree(ModelResponse.schema()),
+        payload.path("tools").get(0).path("input_schema"));
+    assertEquals("respond", payload.path("tool_choice").path("name").asText());
+    assertTrue(payload.path("tool_choice").path("disable_parallel_tool_use").asBoolean());
     assertEquals(1, metrics.get("llm.request").tag("phase", "plan").timer().count());
   }
 
   @Test
   void missingKeyAndProviderErrorDoNotRetry() throws Exception {
     assertThrows(
-        HttpModelClient.Unavailable.class,
+        ModelClient.Unavailable.class,
         () ->
-            new HttpModelClient(json, new MockEnvironment(), metrics, output)
-                .complete(json.createArrayNode(), "", ModelResponse.class));
+            new ModelClient(json, new MockEnvironment(), metrics, factory.getValidator())
+                .plan(json.createArrayNode(), ""));
     var client = client(429, "{}");
     var error =
-        assertThrows(
-            HttpModelClient.Unavailable.class,
-            () -> client.complete(json.createArrayNode(), "", ModelResponse.class));
+        assertThrows(ModelClient.Unavailable.class, () -> client.plan(json.createArrayNode(), ""));
     assertTrue(error.getMessage().contains("429"));
     assertEquals(1, calls.get());
     assertEquals(1, metrics.get("llm.request").tag("outcome", "error").timer().count());
@@ -136,11 +138,25 @@ class HttpModelClientTest {
         }) {
       var client = client(200, response);
       int before = calls.get();
-      assertThrows(
-          HttpModelClient.Unavailable.class,
-          () -> client.complete(json.createArrayNode(), "", ModelResponse.class));
+      assertThrows(ModelClient.Unavailable.class, () -> client.plan(json.createArrayNode(), ""));
       assertEquals(before + 1, calls.get());
+      assertEquals(before + 1, metrics.get("llm.request").tag("outcome", "error").timer().count());
       server.stop(0);
     }
+  }
+
+  @Test
+  void answerRejectsMalformedTextAndToolCalls() throws Exception {
+    for (String content :
+        new String[] {
+          "[]",
+          "[{\"type\":\"text\",\"text\":42}]",
+          "[{\"type\":\"tool_use\",\"name\":\"respond\"}]"
+        }) {
+      var client = client(200, "{\"stop_reason\":\"end_turn\",\"content\":" + content + "}");
+      assertThrows(ModelClient.Unavailable.class, () -> client.answer(json.createArrayNode(), ""));
+      server.stop(0);
+    }
+    assertEquals(3, metrics.get("llm.request").tag("outcome", "error").timer().count());
   }
 }

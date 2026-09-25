@@ -113,8 +113,7 @@ public class RequestHistory {
           var result = store.apply(plan);
           int updated =
               db.update(
-                  "UPDATE request_history SET status='applied', execution_result=?, reply=?, updated_at=? WHERE request_id=? AND status='processing'",
-                  json.valueToTree(result).toString(),
+                  "UPDATE request_history SET status='applied', reply=?, updated_at=? WHERE request_id=? AND status='processing'",
                   "Your changes were saved. The family view shows the saved result.",
                   System.currentTimeMillis(),
                   id);

@@ -12,10 +12,7 @@ cd family-tree-builder-challenge
 ./start.sh
 ```
 
-The script installs dependencies, prompts for an OpenRouter API key if missing, starts the backend, waits until it is ready, then opens:
-
-- **App:** http://127.0.0.1:5173
-- **Metrics and logs:** http://127.0.0.1:3001/admin/ — select the application instance.
+The script installs dependencies, prompts for an OpenRouter API key if missing, starts the backend, waits until it is ready, then opens the app at http://127.0.0.1:5173.
 
 Press **Ctrl+C** to stop. Run `./start.sh` to restart.
 
@@ -23,10 +20,11 @@ Press **Ctrl+C** to stop. Run `./start.sh` to restart.
 
 - Keys stay in ignored `server/.env`; configuration options are in `server/.env.example`.
 - SQLite creates `server/family-tree.db` automatically and preserves data across restarts.
-- Responses use Java records, generated tool schemas and Jakarta Validation; relationship kinds are enums. The configured Sonnet 4 route uses tool calling, not native strict JSON output.
+- Responses use Java records, a fixed tool schema and annotation validation; relationship kinds are enums. The configured Sonnet 4 route uses tool calling, not native strict JSON output.
 - Java validates each batch before saving atomically. Maximum 40 operations and two model calls per turn.
 - Retry uses the original request ID to prevent duplicate application of completed requests.
 - **Clear conversation** removes chat/request history, leaving the family graph intact.
+- Metrics: `/actuator/metrics` and `/actuator/prometheus` on port 3001; request timing and logs appear in the terminal.
 - Local, single-family demo: no authentication; metrics reset on restart and alert notifications are not configured.
 
 ## Verify

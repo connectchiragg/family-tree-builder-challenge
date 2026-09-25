@@ -34,19 +34,13 @@ public class Agent {
       version of that question with pronouns resolved. Otherwise omit answerQuestion. Do not add questions.
       """;
   private final ModelClient model;
-  private final Tools tools;
   private final FamilyStore store;
   private final ObjectMapper json;
 
-  public Agent(ModelClient model, Tools tools, FamilyStore store, ObjectMapper json) {
+  public Agent(ModelClient model, FamilyStore store, ObjectMapper json) {
     this.model = model;
-    this.tools = tools;
     this.store = store;
     this.json = json;
-  }
-
-  public String reply(JsonNode history) {
-    return reply(history, UUID.randomUUID().toString(), store::apply);
   }
 
   public String reply(
@@ -58,38 +52,34 @@ public class Agent {
     try {
       var snapshot = store.graph();
       calls++;
-      var response =
-          model.complete(
-              history,
-              PROMPT + "\nCurrent graph: " + json.valueToTree(snapshot),
-              ModelResponse.class);
+      var response = model.plan(history, PROMPT + "\nCurrent graph: " + json.valueToTree(snapshot));
       if (response.operations().isEmpty()) return response.message();
-      var result = tools.execute(new Plan(response.operations()), apply);
-      if (result.error() != null) return "Nothing was saved. " + result.error();
+      FamilyStore.Applied result;
+      try {
+        result = apply.apply(new Plan(response.operations()));
+      } catch (InvalidFamilyOperationException e) {
+        return "Nothing was saved. " + e.getMessage();
+      } catch (org.springframework.dao.DataAccessException e) {
+        return "Nothing was saved. Saving failed; the transaction was rolled back. Please retry.";
+      }
       var saved = "Saved " + response.operations().size() + " requested change(s).";
       var question = response.answerQuestion();
       if (question == null) return saved;
-      // The answer gets only the resolved question, saved graph and its small response schema.
+      // The answer gets only the resolved question, saved graph without the plan or tool schema.
       var explanation = json.createArrayNode();
       explanation
           .addObject()
           .put("role", "user")
           .put(
               "content",
-              "Question: "
-                  + question
-                  + "\nSaved graph: "
-                  + json.valueToTree(result.applied().graph()));
+              "Question: " + question + "\nSaved graph: " + json.valueToTree(result.graph()));
       calls++;
       try {
         var answer =
-            model.complete(
-                explanation,
-                GUIDANCE
-                    + "Answer using only the saved graph. Return the answer through respond; no changes.",
-                ModelResponse.Answer.class);
-        return saved + "\n" + answer.message();
-      } catch (HttpModelClient.Unavailable e) {
+            model.answer(
+                explanation, GUIDANCE + "Answer using only the saved graph. No tools or changes.");
+        return saved + "\n" + answer;
+      } catch (ModelClient.Unavailable e) {
         // Do not invite a duplicate submission when saving succeeded but wording failed.
         return saved
             + " I couldn't generate the answer; your changes are saved in the family view.";
