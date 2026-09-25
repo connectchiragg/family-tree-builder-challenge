@@ -3,6 +3,7 @@ package pro.workhero.family;
 import static pro.workhero.family.Family.*;
 
 import java.util.*;
+import java.util.function.Function;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,133 +30,128 @@ public class FamilyStore {
             (r, n) -> new SpouseEdge(r.getString(1), r.getString(2))));
   }
 
+  public record Applied(Map<String, String> createdIds, Graph graph) {}
+
+  public Applied apply(Plan plan) {
+    var before = graph();
+    require(
+        plan != null
+            && plan.operations() != null
+            && !plan.operations().isEmpty()
+            && plan.operations().size() <= 40,
+        "INVALID_INPUT",
+        "A plan must contain 1–40 operations.");
+    var draft = new GraphDraft(before);
+    var refs = new LinkedHashMap<String, String>();
+    for (var op : plan.operations()) {
+      require(op != null, "INVALID_INPUT", "An operation cannot be null.");
+      switch (op) {
+        case Plan.CreatePerson c -> {
+          require(
+              c.ref() != null
+                  && c.ref().matches("@[A-Za-z][A-Za-z0-9_-]{0,39}")
+                  && !refs.containsKey(c.ref()),
+              "INVALID_REFERENCE",
+              "Each new person needs a unique @reference.");
+          refs.put(c.ref(), draft.create(c.name()).id());
+        }
+        case Plan.RenamePerson r -> draft.rename(resolve(r.person(), refs, draft), r.name());
+        case Plan.AddRelationship a -> draft.add(edge(a.kind(), a.from(), a.to(), refs, draft));
+        case Plan.RemoveRelationship r ->
+            draft.remove(edge(r.kind(), r.from(), r.to(), refs, draft));
+        case Plan.ReplaceRelationship r ->
+            draft.replace(
+                edge(r.oldKind(), r.oldFrom(), r.oldTo(), refs, draft),
+                edge(r.newKind(), r.newFrom(), r.newTo(), refs, draft));
+      }
+    }
+    // Every operation has passed on the draft. Only now do writes begin.
+    persist(before, draft.graph());
+    return new Applied(Map.copyOf(refs), graph());
+  }
+
+  private String resolve(String ref, Map<String, String> refs, GraphDraft draft) {
+    require(ref != null && !ref.isBlank(), "INVALID_REFERENCE", "A person reference is required.");
+    var id = ref.startsWith("@") ? refs.get(ref) : ref;
+    require(id != null, "INVALID_REFERENCE", "New-person references must be declared before use.");
+    draft.exists(id);
+    return id;
+  }
+
+  private Relationship edge(
+      String kind, String from, String to, Map<String, String> refs, GraphDraft draft) {
+    return new Relationship(kind, resolve(from, refs, draft), resolve(to, refs, draft));
+  }
+
   public List<Person> find(String name) {
     return graph().people().stream().filter(p -> p.name().equalsIgnoreCase(name.strip())).toList();
   }
 
   public Person create(String name) {
-    var person = new Person(UUID.randomUUID().toString(), validName(name));
-    db.update("INSERT INTO person VALUES (?,?)", person.id(), person.name());
-    return person;
+    return change(d -> d.create(name));
   }
 
   public Person rename(String id, String name) {
-    exists(id);
-    var person = new Person(id, validName(name));
-    db.update("UPDATE person SET name=? WHERE id=?", person.name(), id);
-    return person;
+    return change(d -> d.rename(id, name));
   }
 
   public Graph add(Relationship edge) {
-    validate(edge);
-    var a = edge.fromId();
-    var b = edge.toId();
-    if (edge.kind().equals("parent")) {
-      if (count("SELECT count(*) FROM parent_edge WHERE parent_id=? AND child_id=?", a, b) > 0)
-        return graph();
-      require(
-          count("SELECT count(*) FROM parent_edge WHERE child_id=?", b) < 2,
-          "PARENT_LIMIT",
-          "A child can have at most two recorded parents.");
-      require(!reaches(b, a), "CYCLE_DETECTED", "This parent relationship would create a cycle.");
-      db.update("INSERT INTO parent_edge VALUES (?,?)", a, b);
-    } else {
-      var pair = ordered(edge);
-      if (count(
-              "SELECT count(*) FROM spouse_edge WHERE person_a_id=? AND person_b_id=?",
-              pair[0],
-              pair[1])
-          > 0) return graph();
-      require(
-          count(
-                  "SELECT count(*) FROM spouse_edge WHERE person_a_id IN (?,?) OR person_b_id IN (?,?)",
-                  a,
-                  b,
-                  a,
-                  b)
-              == 0,
-          "UNSUPPORTED_REMARRIAGE",
-          "Multiple spouses are outside this exercise's scope.");
-      db.update("INSERT INTO spouse_edge VALUES (?,?)", pair[0], pair[1]);
-    }
+    change(
+        d -> {
+          d.add(edge);
+          return null;
+        });
     return graph();
   }
 
   public Graph remove(Relationship edge) {
-    validate(edge);
-    int removed;
-    if (edge.kind().equals("parent"))
-      removed =
-          db.update(
-              "DELETE FROM parent_edge WHERE parent_id=? AND child_id=?",
-              edge.fromId(),
-              edge.toId());
-    else {
-      var p = ordered(edge);
-      removed =
-          db.update("DELETE FROM spouse_edge WHERE person_a_id=? AND person_b_id=?", p[0], p[1]);
-    }
-    require(removed == 1, "RELATIONSHIP_NOT_FOUND", "The relationship to remove does not exist.");
+    change(
+        d -> {
+          d.remove(edge);
+          return null;
+        });
     return graph();
   }
 
   public Graph replace(Relationship oldEdge, Relationship newEdge) {
-    remove(oldEdge);
-    return add(newEdge); // Same transaction: a failed replacement restores the original edge.
+    change(
+        d -> {
+          d.replace(oldEdge, newEdge);
+          return null;
+        });
+    return graph();
   }
 
-  private boolean reaches(String start, String target) {
-    var children = new HashMap<String, List<String>>();
-    graph()
-        .parentEdges()
-        .forEach(
-            e -> children.computeIfAbsent(e.parentId(), k -> new ArrayList<>()).add(e.childId()));
-    var pending = new ArrayDeque<String>();
-    var seen = new HashSet<String>();
-    pending.add(start);
-    while (!pending.isEmpty()) {
-      var id = pending.removeFirst();
-      if (id.equals(target)) return true;
-      if (seen.add(id)) pending.addAll(children.getOrDefault(id, List.of()));
-    }
-    return false;
+  private <T> T change(Function<GraphDraft, T> operation) {
+    var before = graph();
+    var draft = new GraphDraft(before);
+    var result = operation.apply(draft);
+    persist(before, draft.graph());
+    return result;
   }
 
-  private void validate(Relationship e) {
-    require(
-        e != null && e.kind() != null && Set.of("parent", "spouse").contains(e.kind()),
-        "INVALID_INPUT",
-        "Relationship kind must be parent or spouse.");
-    exists(e.fromId());
-    exists(e.toId());
-    require(
-        !e.fromId().equals(e.toId()),
-        "SELF_RELATIONSHIP",
-        "A person cannot have a relationship to themselves.");
-  }
-
-  private void exists(String id) {
-    require(
-        id != null && count("SELECT count(*) FROM person WHERE id=?", id) == 1,
-        "PERSON_NOT_FOUND",
-        "Look up the person before using their ID.");
-  }
-
-  private int count(String sql, Object... args) {
-    return db.queryForObject(sql, Integer.class, args);
-  }
-
-  private String[] ordered(Relationship e) {
-    return e.fromId().compareTo(e.toId()) < 0
-        ? new String[] {e.fromId(), e.toId()}
-        : new String[] {e.toId(), e.fromId()};
-  }
-
-  private String validName(String name) {
-    require(
-        name != null && !name.isBlank() && name.strip().length() <= 120,
-        "INVALID_INPUT",
-        "Name must contain 1–120 characters.");
-    return name.strip();
+  private void persist(Graph before, Graph after) {
+    for (var e : before.parentEdges())
+      if (!after.parentEdges().contains(e))
+        db.update(
+            "DELETE FROM parent_edge WHERE parent_id=? AND child_id=?", e.parentId(), e.childId());
+    for (var e : before.spouseEdges())
+      if (!after.spouseEdges().contains(e))
+        db.update(
+            "DELETE FROM spouse_edge WHERE person_a_id=? AND person_b_id=?",
+            e.personAId(),
+            e.personBId());
+    for (var p : after.people())
+      if (!before.people().contains(p))
+        db.update(
+            "INSERT INTO person(id,name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name",
+            p.id(),
+            p.name());
+    for (var e : after.parentEdges())
+      if (!before.parentEdges().contains(e))
+        db.update("INSERT INTO parent_edge VALUES (?,?)", e.parentId(), e.childId());
+    for (var e : after.spouseEdges())
+      if (!before.spouseEdges().contains(e))
+        db.update("INSERT INTO spouse_edge VALUES (?,?)", e.personAId(), e.personBId());
   }
 }

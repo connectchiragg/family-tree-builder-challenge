@@ -1,14 +1,9 @@
-# Implementation scope
+# Current implementation
 
-The original JavaScript proposal was superseded by the user's approved Java
-backend direction. Implementation uses Java 21 records, Spring Boot, SQLite/JDBC,
-a command registry for tools and a small model-client interface. The React UI
-and API contracts are retained; the Express stubs are removed.
+Java 21/Spring Boot backend with SQLite, preserving the React frontend/API contracts.
+One typed batch tool accepts a complete ordered mutation plan. Java validates it
+on a private graph copy before writes, then persists atomically. The second model
+call has tools disabled and only explains the result. Clarification/read-only
+turns use one call. No automatic repair or stale-snapshot rejection.
 
-Completed: persistence and graph rules; strict tool schemas and atomic corrections;
-bounded agent loop; HTTP provider adapter; API validation; frontend error messages;
-unit/integration tests and README walkthrough.
-
-See README for architecture, reading order, verification commands and explicit
-limitations. Live OpenRouter validation has passed the README scenarios. The supplied key
-is kept only in ignored `server/.env`; it is never shipped to the browser or Git.
+See README for architecture, schemas, reading order, setup and limitations.

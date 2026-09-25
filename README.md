@@ -42,98 +42,107 @@ mvn spotless:apply              # formatter; use JDK 21/22 with this formatter v
 
 ## Design and reading order
 
-1. `Family.java`: immutable records for people, edges, and graph snapshots.
-2. `FamilyStore.java`: small JDBC repository with domain validation and transactions.
-3. `Tools.java`: command registry holding each tool's schema and executable handler.
-4. `ModelClient.java` / `HttpModelClient.java`: provider boundary and HTTP adapter.
-5. `Agent.java`: bounded tool loop, independent of transport and controller.
-6. `Api.java`: request validation and the original frontend API contract.
-7. `src/test/java/pro/workhero/family`: behavioral tests.
+1. `Family.java`: immutable people, edges and graph records.
+2. `Plan.java`: sealed operation interface and typed operation records.
+3. `GraphDraft.java`: pure business rules applied to a private graph copy.
+4. `FamilyStore.java`: loads current state, validates the batch, then persists its diff atomically.
+5. `Tools.java`: one batch-tool schema and strict Jackson deserialization.
+6. `Agent.java`: planning call, execution, then explanation call; no repair loop.
+7. `ModelClient.java` / `HttpModelClient.java`: provider interface and HTTP adapter.
+8. `Api.java`: HTTP validation and frontend contracts.
 
-Paths above are relative to `server/src/main/java/pro/workhero/family` except the
-test path, which is relative to `server`.
+Java paths are relative to `server/src/main/java/pro/workhero/family`. Tests are
+under `server/src/test/java/pro/workhero/family`.
 
-Java records, text blocks, and small functions keep the code direct. The only
-intentional abstraction is the model interface, allowing scripted offline tests.
-The tool registry is a lightweight command pattern; no separate class per tool,
-ORM, agent framework, distributed lock service, or generic repository hierarchy.
+## Two-call workflow
 
-## Tool contract
+The first call receives conversation history, the current graph and one tool:
+`apply_family_changes`. It either asks a clarification/answers a read-only question
+in text (one call total), or submits one complete ordered plan (two calls total).
 
-| Tool | Required input | Purpose |
-| --- | --- | --- |
-| `get_family_tree` | none | Read current IDs and relationship context |
-| `find_people` | `name` | Return every exact case-insensitive name match |
-| `create_person` | `name` | Create an explicitly new person with a server-generated UUID |
-| `update_person` | `id`, `name` | Correct a name while retaining identity |
-| `add_relationship` | `kind`, `fromId`, `toId` | Add `parent` or `spouse` |
-| `remove_relationship` | same | Retract an explicitly identified relationship |
-| `replace_relationship` | `oldKind`, `oldFromId`, `oldToId`, `newKind`, `newFromId`, `newToId` | Atomic correction |
+```json
+{
+  "operations": [
+    {"type": "create_person", "ref": "@parent", "name": "Sam"},
+    {"type": "create_person", "ref": "@child", "name": "Alex"},
+    {"type": "add_relationship", "kind": "parent", "from": "@parent", "to": "@child"}
+  ]
+}
+```
 
-All fields are required; extra fields and wrong types are rejected at runtime.
-IDs and names are nonblank strings of at most 120 characters. Tool errors are
-returned as `is_error` results with a code and explanation. Unknown tools cannot
-invoke arbitrary application behavior.
+New people must have explicit creation operations with unique `@references`.
+Later operations resolve those references to server-generated UUIDs. References
+without `@` must be existing database IDs; unknown IDs are errors, never implicit
+person creation. Forward/duplicate temporary references are rejected.
 
-Names are deliberately not unique. Tools return stable person IDs; writes use
-those IDs. The system prompt includes the current graph on every model call,
-so persisting internal tool transcripts across HTTP requests is unnecessary for
-this small graph. Name matching is exact, not fuzzy. The model can use the full
-graph for contextual lookup and spelling corrections.
+Supported operations:
 
-## Correctness and ambiguity
+| Type | Required fields besides `type` |
+| --- | --- |
+| `create_person` | `ref`, `name` |
+| `rename_person` | `person`, `name` |
+| `add_relationship` | `kind`, `from`, `to` |
+| `remove_relationship` | `kind`, `from`, `to` |
+| `replace_relationship` | `oldKind`, `oldFrom`, `oldTo`, `newKind`, `newFrom`, `newTo` |
 
-The model must ask a specific clarification when several people fit a reference.
-It must establish the speaker for “I”/“my” and must not invent missing parents.
-This semantic behavior depends on the model; database constraints cannot prove
-that a chosen person is the one the user intended. The scripted clarification
-test checks orchestration, not live-model comprehension.
+Relationship kinds are `parent` and `spouse`. Parent direction is from → to.
+The tool supplies a JSON Schema; Java deserializes to a sealed operation hierarchy
+and rejects unknown fields, missing/null fields and scalar coercion. Schema/type
+correctness does not replace business validation, and provider schema adherence
+is not assumed to be infallible.
 
-The backend independently enforces existing endpoints, no self-links, at most
-two parents, and a directed acyclic parent graph. Before adding parent → child,
-it searches from child to parent. A reachable parent would create a cycle.
-Spouse pairs are sorted and unique. Marriage never adds parent edges; multiple
-spouses receive an unsupported-scope error.
+`FamilyStore.apply` loads the latest graph within a short transaction and simulates
+all operations on `GraphDraft`. No SQL mutations occur until every operation
+passes. Validation failure discards the draft, with nothing to roll back. After
+validation, SQL persists the diff; a database failure during that phase rolls back
+all writes. Model calls never hold a database transaction.
 
-Renaming preserves the ID and edges. `replace_relationship` removes the old edge
-and validates/inserts the new edge in one transaction. Any failure restores the
-original. A single-connection pool serializes short database transactions,
-including concurrent writes in this single application process. Model calls
-never hold a database transaction. SQLite foreign keys are enabled on connection
-creation. Restarting the process preserves graph data.
+There is no stale-snapshot rejection. Later operations apply to the current graph;
+for example a later rename overwrites an earlier name. They still must satisfy
+current business rules, including the existence of an edge being replaced.
+Unrelated intervening changes are preserved, not overwritten by a stale full graph.
+The single-connection pool serializes database transactions in this local process.
 
-## Agent behavior and reliability
+The execution result is returned to the second model call, with `tool_choice: none`.
+That call explains success or rejection and can ask the user for clarification.
+It cannot repair/replan or execute another mutation; unexpected tool output is
+never executed. Multiple first-call plans are rejected before any one is applied.
+If the explanation fails after commit, Java returns a truthful saved-status fallback
+rather than inviting a duplicate submission. Model-call count and duration are logged.
 
-The loop preserves assistant blocks and returns a result for each requested tool.
-There is no separate model checker. A text-only answer returns immediately.
-The main prompt specifies resolve → create → relate/correct → report, prohibits
-invented IDs/results, and distinguishes failed, unchanged, and committed facts.
-Current graph state and actual in-request tool outcomes accompany each call;
-older assistant claims are not treated as evidence of a saved write. These
-instructions improve grounding but cannot guarantee semantic correctness.
-Calls execute sequentially. Limits are eight model rounds and 24 tool calls per
-HTTP request, with a 30-second timeout per provider request and a 10-second
-connection timeout. There is no streaming; worst-case total waiting can span
-multiple provider timeouts. Truncated or empty output fails explicitly.
+## Identity and rules
 
-Identical repeated tool-call IDs replay their in-request result; changed input
-under a reused ID fails. Duplicate parent/spouse additions are no-ops. There is
-no automatic model or whole-turn retry.
+Names are not unique. Same-name people retain different IDs. The model must clarify
+ambiguous identity before submitting any mutations for that turn. The user answers
+on the next turn. Semantic ambiguity remains model-dependent; the backend cannot
+prove that an existing ID represents the intended person.
 
-**Boundaries:** independent HTTP retries are not exactly-once; a newly generated
-person call can create a duplicate. Successful earlier tools remain committed
-if a later tool/provider call fails. The UI reports this possibility. A correction
-is atomic, but an entire conversational turn is not. Durable request IDs and
-stored response replay are the first extension for reliable retries. Concurrent
-chat turns can reason from stale semantic context even though database writes
-preserve graph invariants; version checks would address this in a multi-user app.
+Business rules check existing endpoints, no self-relationships, no directed parent
+cycles, at most two parents per child, and no multiple spouses. Duplicate edges are
+no-ops. Spouse pairs are canonical and never imply parent edges. Name corrections
+preserve IDs and relationships. Replacement requires the old edge to exist.
 
-Logs include request ID, duration, tool counts, tool names and validation error
-codes, not API keys, names or chat bodies. `/api/health` checks database access.
-For deployment, add metrics for provider errors, p95 latency, validation failures,
-and loop exhaustion; alert on sustained changes, not individual user mistakes.
-There is no metrics backend or alert service in this take-home. Distributed
-leases become relevant only if work is queued across multiple workers.
+## Reliability and limits
+
+At most two model calls per turn, each with a 30-second request timeout and a
+10-second connection timeout. Plans contain 1–40 operations; output budget is 4096
+tokens. Truncated plans are rejected before execution. No automatic whole-turn
+retry, model checker, or automatic repair loop. Independent repeated HTTP requests
+can still create duplicate people; durable request IDs are a future improvement.
+
+One local family graph; no authentication or tenant isolation. Browser chat history
+is ephemeral. Remarriage, half-siblings and invented unknown parents are outside
+scope. The model sees the full small graph; this is not intended for large datasets.
+Type safety and graph constraints do not guarantee correct language interpretation.
+
+The UI offers a top-down tree and grouped relationship list. Spouses and co-parents
+are aligned where ancestry permits; presentation never invents relationships.
+Dense graphs may have crossing/overlapping connectors; the list shows exact facts.
+
+Logs contain request ID, model-call count, duration and error codes, not chat bodies
+or credentials. `/api/health` checks the database. Production work would add provider
+error/latency metrics and alerts; no monitoring service or distributed leases are
+included in this local exercise.
 
 ## Demo walkthrough
 
@@ -149,38 +158,13 @@ leases become relevant only if work is queued across multiple workers.
 7. Restart the server and refresh the graph. Data remains; browser conversation
    history is not persisted and refreshing the page clears it.
 
-## Limitations
-
-One local user / one shared family graph; no authentication or tenant isolation.
-The development server is not a public deployment. Remarriage, half-siblings,
-more than two parents, and invented unknown parents are unsupported. The graph
-is loaded in full, appropriate for a small exercise. No fuzzy identity resolution,
-merge-person operation, durable chat history, undo log or full-turn transaction.
-The UI offers a top-down family tree and a grouped relationship list. Spouses
-and co-parents are aligned where ancestry permits, with independent family
-groups spaced apart. Layout grouping never implies marriage or parenthood.
-Cross-generation spouse links retain ancestry ranks; dense graphs may still
-have crossing lines, and the List view gives an unambiguous relationship readout. Provider model availability and
-semantic quality require a live check with the supplied credential.
-
 ## Validation
 
-Tests cover graph invariants, duplicate names/edges, rename identity, correction
-rollback, concurrent parent additions, persistence through a separate connection,
-API input validation, tool dispatch errors, repeated tool IDs, bounded iteration,
-all final text blocks, and actual HTTP protocol against a local stub provider.
-A local stub verifies wiring only; it does not establish live-model correctness.
+The tests cover typed plan parsing, temporary references, duplicate names, graph
+invariants, zero SQL writes on validation rejection, transaction rollback on actual
+persistence failure, later-rename-wins behavior, and one-call clarification/two-call
+mutation behavior. Provider tests inspect `tool_choice: none` on explanation calls.
+The frontend has five layout tests plus build/lint checks.
 
-Verified locally: all 19 Java tests pass; frontend build and lint pass. Browser
-verification with an explicitly labeled offline provider rendered three people
-and two parent edges. A full server restart preserved the same graph and IDs.
-The offline provider used a separate temporary database and is not shipped.
-Live OpenRouter validation passed creation, marriage, stable-ID renaming, cycle
-rejection, two same-name people, ambiguity without a write, clarified renaming,
-and atomic parent replacement. A model false-success response observed during
-the initial run motivated explicit tool-first instructions. The extra model
-checker was removed; a regression test enforces single-call text replies. These
-scenario checks are evidence for this demo, not a guarantee across all prompts.
-
-UI verification: five layout tests pass; build/lint pass; both Tree and List
-views were inspected in the browser using the live eight-person family graph.
+Live verification results are recorded in the PR. The key remains only in ignored
+local `server/.env`, never in browser code or source control.

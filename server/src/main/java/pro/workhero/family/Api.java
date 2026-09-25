@@ -66,11 +66,6 @@ public class Api {
   @ExceptionHandler(HttpModelClient.Unavailable.class)
   ResponseEntity<?> unavailable(HttpModelClient.Unavailable e) {
     return ResponseEntity.status(502)
-        .body(
-            Map.of(
-                "error",
-                e.getMessage() + " Earlier successful changes may already be saved.",
-                "code",
-                "MODEL_UNAVAILABLE"));
+        .body(Map.of("error", e.getMessage(), "code", "MODEL_UNAVAILABLE"));
   }
 }

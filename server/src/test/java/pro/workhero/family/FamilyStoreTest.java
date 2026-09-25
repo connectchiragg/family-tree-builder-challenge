@@ -32,7 +32,7 @@ class FamilyStoreTest {
   }
 
   @Autowired FamilyStore store;
-  @Autowired JdbcTemplate db;
+  @org.springframework.test.context.bean.override.mockito.MockitoSpyBean JdbcTemplate db;
 
   @BeforeEach
   void reset() {
@@ -141,5 +141,84 @@ class FamilyStoreTest {
       assertEquals(2, accepted);
       assertEquals(2, store.graph().parentEdges().size());
     }
+  }
+
+  @Test
+  void batchResolvesNewPeopleAndAllowsDuplicateNames() {
+    var result =
+        store.apply(
+            new Plan(
+                java.util.List.of(
+                    new Plan.CreatePerson("@a", "John"),
+                    new Plan.CreatePerson("@b", "John"),
+                    new Plan.AddRelationship("parent", "@a", "@b"))));
+    assertEquals(2, result.createdIds().size());
+    assertEquals(2, store.find("John").size());
+    assertEquals(1, result.graph().parentEdges().size());
+  }
+
+  @Test
+  void invalidLaterOperationPerformsNoSqlWrites() {
+    org.mockito.Mockito.clearInvocations(db);
+    assertThrows(
+        Invalid.class,
+        () ->
+            store.apply(
+                new Plan(
+                    java.util.List.of(
+                        new Plan.CreatePerson("@a", "Alice"),
+                        new Plan.AddRelationship("parent", "@a", "missing")))));
+    assertTrue(
+        org.mockito.Mockito.mockingDetails(db).getInvocations().stream()
+            .noneMatch(i -> i.getMethod().getName().equals("update")));
+    assertTrue(store.graph().people().isEmpty());
+  }
+
+  @Test
+  void batchRejectsUndeclaredReferencesAndCycles() {
+    var empty = store.graph();
+    assertThrows(
+        Invalid.class,
+        () ->
+            store.apply(
+                new Plan(java.util.List.of(new Plan.AddRelationship("parent", "@a", "@b")))));
+    assertThrows(
+        Invalid.class,
+        () ->
+            store.apply(
+                new Plan(
+                    java.util.List.of(
+                        new Plan.CreatePerson("@a", "A"),
+                        new Plan.CreatePerson("@b", "B"),
+                        new Plan.AddRelationship("parent", "@a", "@b"),
+                        new Plan.AddRelationship("parent", "@b", "@a")))));
+    assertEquals(empty, store.graph());
+  }
+
+  @Test
+  void databaseFailureDuringPersistenceRollsBackAllWrites() {
+    db.execute(
+        "CREATE TRIGGER fail_insert BEFORE INSERT ON person WHEN NEW.name='Fail' BEGIN SELECT RAISE(ABORT,'test failure'); END");
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () ->
+              store.apply(
+                  new Plan(
+                      java.util.List.of(
+                          new Plan.CreatePerson("@a", "Alice"),
+                          new Plan.CreatePerson("@b", "Fail")))));
+      assertTrue(store.graph().people().isEmpty());
+    } finally {
+      db.execute("DROP TRIGGER fail_insert");
+    }
+  }
+
+  @Test
+  void laterRenameWinsWithoutSnapshotRejection() {
+    var person = store.create("Initial");
+    store.rename(person.id(), "Earlier edit");
+    store.apply(new Plan(java.util.List.of(new Plan.RenamePerson(person.id(), "Latest edit"))));
+    assertEquals(person.id(), store.find("Latest edit").getFirst().id());
   }
 }

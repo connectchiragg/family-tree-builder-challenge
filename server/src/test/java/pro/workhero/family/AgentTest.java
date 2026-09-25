@@ -10,129 +10,116 @@ import org.junit.jupiter.api.*;
 class AgentTest {
   final ObjectMapper json = new ObjectMapper();
   final FamilyStore store = mock(FamilyStore.class);
-  final Tools tools = new Tools(store, json);
+  final ModelClient model = mock(ModelClient.class);
+  final Family.Graph graph = new Family.Graph(List.of(), List.of(), List.of());
+  Tools tools = new Tools(store, json);
 
   @BeforeEach
   void setup() {
-    when(store.graph()).thenReturn(new Family.Graph(List.of(), List.of(), List.of()));
-  }
-
-  JsonNode parse(String text) throws Exception {
-    return json.readTree(text);
+    when(store.graph()).thenReturn(graph);
   }
 
   JsonNode history() throws Exception {
-    return parse("[{\"role\":\"user\",\"content\":\"Add Alice\"}]");
+    return json.readTree("[{\"role\":\"user\",\"content\":\"Add Alice\"}]");
   }
 
-  JsonNode call(String id, String name, String input) throws Exception {
-    return parse(
-        "{\"content\":[{\"type\":\"tool_use\",\"id\":\""
-            + id
-            + "\",\"name\":\""
-            + name
-            + "\",\"input\":"
-            + input
-            + "}],\"stop_reason\":\"tool_use\"}");
+  JsonNode text(String value) {
+    return json.valueToTree(Map.of("content", List.of(Map.of("type", "text", "text", value))));
   }
 
-  JsonNode text() throws Exception {
-    return parse(
-        "{\"content\":[{\"type\":\"text\",\"text\":\"Saved.\"},{\"type\":\"text\",\"text\":\"Done.\"}],\"stop_reason\":\"end_turn\"}");
+  JsonNode plan() throws Exception {
+    return json.readTree(
+        """
+    {"content":[{"type":"tool_use","id":"call1","name":"apply_family_changes","input":{"operations":[{"type":"create_person","ref":"@a","name":"Alice"}]}}]}
+    """);
+  }
+
+  Agent agent() {
+    return new Agent(model, tools, store, json);
   }
 
   @Test
-  void runsToolsAndReturnsAllTextWithoutMutatingHistory() throws Exception {
-    var responses =
-        new ArrayDeque<JsonNode>(
-            List.of(call("1", "create_person", "{\"name\":\"Alice\"}"), text()));
-    when(store.create("Alice")).thenReturn(new Family.Person("a", "Alice"));
-    var sent = new ArrayList<JsonNode>();
-    ModelClient model =
-        (messages, definitions, prompt) -> {
-          sent.add(messages.deepCopy());
-          return responses.removeFirst();
-        };
+  void successfulBatchUsesExactlyTwoCallsAndDoesNotMutateHistory() throws Exception {
+    when(model.complete(any(), any(), anyString())).thenReturn(plan());
+    when(store.apply(any())).thenReturn(new FamilyStore.Applied(Map.of("@a", "a"), graph));
+    when(model.summarize(any(), any(), anyString()))
+        .thenAnswer(
+            call -> {
+              JsonNode messages = call.getArgument(0);
+              assertFalse(messages.get(2).path("content").get(0).path("is_error").asBoolean());
+              return text("Saved Alice.");
+            });
     var history = history();
-    assertEquals("Saved.\nDone.", new Agent(model, tools, store, json).reply(history));
+    assertEquals("Saved Alice.", agent().reply(history));
     assertEquals(1, history.size());
-    assertEquals("1", sent.get(1).get(2).path("content").get(0).path("tool_use_id").asText());
-    verify(store).create("Alice");
-  }
-
-  @Test
-  void repeatedToolIdReplaysResultWithoutRepeatingWrite() throws Exception {
-    var call = call("1", "create_person", "{\"name\":\"Alice\"}");
-    var responses = new ArrayDeque<>(List.of(call, call, text()));
-    new Agent((m, t, s) -> responses.removeFirst(), tools, store, json).reply(history());
-    verify(store, times(1)).create("Alice");
-  }
-
-  @Test
-  void changedInputForRepeatedIdIsRejected() throws Exception {
-    var responses =
-        new ArrayDeque<>(
-            List.of(
-                call("1", "create_person", "{\"name\":\"Alice\"}"),
-                call("1", "create_person", "{\"name\":\"Bob\"}")));
-    assertThrows(
-        HttpModelClient.Unavailable.class,
-        () -> new Agent((m, t, s) -> responses.removeFirst(), tools, store, json).reply(history()));
-    verify(store, never()).create("Bob");
-  }
-
-  @Test
-  void validationErrorsAreFedBackToModel() throws Exception {
-    var response = call("1", "create_person", "{\"name\":\"Alice\",\"extra\":true}");
-    var done = text();
-    ModelClient model =
-        (m, t, s) -> {
-          if (m.size() == 1) return response;
-          assertTrue(m.get(2).path("content").get(0).path("is_error").asBoolean());
-          return done;
-        };
-    new Agent(model, tools, store, json).reply(history());
-    verify(store, never()).create(anyString());
-  }
-
-  @Test
-  void boundedLoopAndTruncatedOutputFailExplicitly() throws Exception {
-    var repeated = call("1", "get_family_tree", "{}");
-    assertThrows(
-        HttpModelClient.Unavailable.class,
-        () -> new Agent((m, t, s) -> repeated, tools, store, json).reply(history()));
-    var truncated = parse("{\"content\":[],\"stop_reason\":\"max_tokens\"}");
-    assertThrows(
-        HttpModelClient.Unavailable.class,
-        () -> new Agent((m, t, s) -> truncated, tools, store, json).reply(history()));
-  }
-
-  @Test
-  void clarificationCanReturnWithoutWrites() throws Exception {
-    var response =
-        parse("{\"content\":[{\"type\":\"text\",\"text\":\"Which John do you mean?\"}]}");
-    assertEquals(
-        "Which John do you mean?",
-        new Agent((m, t, s) -> response, tools, store, json).reply(history()));
-    verify(store, never()).create(anyString());
-  }
-
-  @Test
-  void toolValidationAndDomainErrorsAreStructured() throws Exception {
-    assertTrue(tools.execute("unknown", parse("{}")).error());
-    assertTrue(tools.execute("create_person", parse("{\"name\":42}")).error());
-    when(store.create("Alice")).thenThrow(new Family.Invalid("INVALID_INPUT", "Rejected"));
-    var result = tools.execute("create_person", parse("{\"name\":\"Alice\"}"));
-    assertTrue(result.error());
-    assertEquals("INVALID_INPUT", json.valueToTree(result.value()).path("code").asText());
-  }
-
-  @Test
-  void textReplyReturnsAfterOneCallWithoutChecker() throws Exception {
-    var model = mock(ModelClient.class);
-    when(model.complete(any(), any(), anyString())).thenReturn(text());
-    assertEquals("Saved.\nDone.", new Agent(model, tools, store, json).reply(history()));
     verify(model, times(1)).complete(any(), any(), anyString());
-    verify(store, never()).create(anyString());
+    verify(model, times(1)).summarize(any(), any(), anyString());
+    verify(store).apply(any());
+  }
+
+  @Test
+  void clarificationNeedsOneCallAndNoPlanExecution() throws Exception {
+    when(model.complete(any(), any(), anyString())).thenReturn(text("Which John do you mean?"));
+    assertEquals("Which John do you mean?", agent().reply(history()));
+    verify(model, never()).summarize(any(), any(), anyString());
+    verify(store, never()).apply(any());
+  }
+
+  @Test
+  void invalidPlanIsExplainedWithoutRepairOrRetry() throws Exception {
+    when(model.complete(any(), any(), anyString())).thenReturn(plan());
+    when(store.apply(any())).thenThrow(new Family.Invalid("PERSON_NOT_FOUND", "Unknown person."));
+    when(model.summarize(any(), any(), anyString()))
+        .thenAnswer(
+            call -> {
+              JsonNode m = call.getArgument(0);
+              assertTrue(m.get(2).path("content").get(0).path("is_error").asBoolean());
+              return text("Nothing saved. Which person did you mean?");
+            });
+    assertTrue(agent().reply(history()).startsWith("Nothing saved"));
+    verify(store, times(1)).apply(any());
+    verify(model, times(1)).complete(any(), any(), anyString());
+  }
+
+  @Test
+  void secondCallCannotExecuteTools() throws Exception {
+    when(model.complete(any(), any(), anyString())).thenReturn(plan());
+    when(store.apply(any())).thenReturn(new FamilyStore.Applied(Map.of(), graph));
+    when(model.summarize(any(), any(), anyString())).thenReturn(plan());
+    assertTrue(agent().reply(history()).startsWith("Your changes were saved"));
+    verify(store, times(1)).apply(any());
+  }
+
+  @Test
+  void multiplePlansAreRejectedBeforeAnyExecution() throws Exception {
+    var response = plan();
+    ((com.fasterxml.jackson.databind.node.ArrayNode) response.path("content"))
+        .add(response.path("content").get(0).deepCopy().deepCopy());
+    ((com.fasterxml.jackson.databind.node.ObjectNode) response.path("content").get(1))
+        .put("id", "call2");
+    when(model.complete(any(), any(), anyString())).thenReturn(response);
+    when(model.summarize(any(), any(), anyString())).thenReturn(text("Nothing saved."));
+    agent().reply(history());
+    verify(store, never()).apply(any());
+  }
+
+  @Test
+  void strictTypedPlanRejectsWrongTypesAndExtraFields() throws Exception {
+    for (var input :
+        List.of(
+            "{\"operations\":[{\"type\":\"create_person\",\"ref\":\"@a\",\"name\":42}]}",
+            "{\"operations\":[],\"extra\":true}",
+            "{\"operations\":[{\"type\":\"create_person\",\"ref\":\"@a\"}]}"))
+      assertTrue(tools.execute("apply_family_changes", json.readTree(input)).error());
+    verify(store, never()).apply(any());
+  }
+
+  @Test
+  void truncatedPlanDoesNotExecute() throws Exception {
+    var response = (com.fasterxml.jackson.databind.node.ObjectNode) plan();
+    response.put("stop_reason", "max_tokens");
+    when(model.complete(any(), any(), anyString())).thenReturn(response);
+    assertThrows(HttpModelClient.Unavailable.class, () -> agent().reply(history()));
+    verify(store, never()).apply(any());
   }
 }

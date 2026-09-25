@@ -6,4 +6,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 @FunctionalInterface
 public interface ModelClient {
   JsonNode complete(JsonNode messages, JsonNode tools, String system);
+
+  default JsonNode summarize(JsonNode messages, JsonNode tools, String system) {
+    return complete(messages, tools, system);
+  }
 }

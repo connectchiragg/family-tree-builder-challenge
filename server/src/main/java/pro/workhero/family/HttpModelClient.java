@@ -25,22 +25,33 @@ public class HttpModelClient implements ModelClient {
 
   @Override
   public JsonNode complete(JsonNode messages, JsonNode tools, String system) {
+    return send(messages, tools, system, false);
+  }
+
+  @Override
+  public JsonNode summarize(JsonNode messages, JsonNode tools, String system) {
+    return send(messages, tools, system, true);
+  }
+
+  private JsonNode send(JsonNode messages, JsonNode tools, String system, boolean explainOnly) {
     if (key.isBlank())
       throw new Unavailable("Set ANTHROPIC_API_KEY in server/.env to enable chat.");
     try {
-      var body =
-          json.writeValueAsString(
+      var payload =
+          new java.util.LinkedHashMap<String, Object>(
               Map.of(
                   "model",
                   model,
                   "max_tokens",
-                  2048,
+                  4096,
                   "system",
                   system,
                   "tools",
                   tools,
                   "messages",
                   messages));
+      payload.put("tool_choice", Map.of("type", explainOnly ? "none" : "auto"));
+      var body = json.writeValueAsString(payload);
       var request =
           HttpRequest.newBuilder(URI.create(base + "/v1/messages"))
               .timeout(Duration.ofSeconds(30))

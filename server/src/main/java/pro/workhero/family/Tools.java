@@ -2,169 +2,131 @@ package pro.workhero.family;
 
 import static pro.workhero.family.Family.*;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.*;
 import java.util.*;
-import java.util.function.Function;
 import org.springframework.stereotype.Component;
 
-/** A small command registry: schema, validation and execution stay together. */
 @Component
 public class Tools {
-  private record Tool(
-      String name,
-      String description,
-      Map<String, String> fields,
-      Function<JsonNode, Object> execute) {}
-
   public record Result(boolean error, Object value) {}
 
-  private final Map<String, Tool> registry = new LinkedHashMap<>();
+  private final FamilyStore store;
   private final ObjectMapper json;
 
   public Tools(FamilyStore store, ObjectMapper json) {
-    this.json = json;
-    register(
-        "get_family_tree",
-        "Read all people and relationships; use their stable IDs.",
-        Map.of(),
-        x -> store.graph());
-    register(
-        "find_people",
-        "Find ALL exact name matches (case insensitive). Read graph relationships to disambiguate; never choose arbitrarily.",
-        Map.of("name", "Name to look up"),
-        x -> store.find(text(x, "name")));
-    register(
-        "create_person",
-        "Create only an explicitly NEW person, after checking existing people. Names are not unique.",
-        Map.of("name", "Explicitly stated name"),
-        x -> store.create(text(x, "name")));
-    register(
-        "update_person",
-        "Correct an existing person's name without changing identity or relationships.",
-        Map.of("id", "Existing person ID", "name", "Corrected name"),
-        x -> store.rename(text(x, "id"), text(x, "name")));
-    var relationship =
-        Map.of(
-            "kind",
-            "parent or spouse; parent direction is fromId to toId",
-            "fromId",
-            "Existing person ID",
-            "toId",
-            "Existing person ID");
-    register(
-        "add_relationship",
-        "Add an explicitly supported relationship. A spouse never implies a parent.",
-        relationship,
-        x -> store.add(edge(x, "")));
-    register(
-        "remove_relationship",
-        "Remove a relationship explicitly retracted by the user. For replacements use replace_relationship.",
-        relationship,
-        x -> store.remove(edge(x, "")));
-    register(
-        "replace_relationship",
-        "Atomically replace an incorrect relationship. Invalid replacements preserve the original.",
-        Map.of(
-            "oldKind",
-            "parent or spouse",
-            "oldFromId",
-            "Old source ID",
-            "oldToId",
-            "Old target ID",
-            "newKind",
-            "parent or spouse",
-            "newFromId",
-            "Correct source ID",
-            "newToId",
-            "Correct target ID"),
-        x -> store.replace(edge(x, "old"), edge(x, "new")));
-  }
-
-  private void register(
-      String name, String description, Map<String, String> fields, Function<JsonNode, Object> fn) {
-    registry.put(name, new Tool(name, description, fields, fn));
+    this.store = store;
+    this.json =
+        json.copy()
+            .enable(
+                DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
+                DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES,
+                DeserializationFeature.FAIL_ON_NULL_CREATOR_PROPERTIES)
+            .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS);
+    var textCoercion =
+        this.json.coercionConfigFor(com.fasterxml.jackson.databind.type.LogicalType.Textual);
+    for (var shape :
+        List.of(
+            com.fasterxml.jackson.databind.cfg.CoercionInputShape.Integer,
+            com.fasterxml.jackson.databind.cfg.CoercionInputShape.Float,
+            com.fasterxml.jackson.databind.cfg.CoercionInputShape.Boolean))
+      textCoercion.setCoercion(shape, com.fasterxml.jackson.databind.cfg.CoercionAction.Fail);
   }
 
   public JsonNode definitions() {
+    var variants =
+        List.of(
+            schema("create_person", "ref", "name"),
+            schema("rename_person", "person", "name"),
+            schema("add_relationship", "kind", "from", "to"),
+            schema("remove_relationship", "kind", "from", "to"),
+            schema(
+                "replace_relationship",
+                "oldKind",
+                "oldFrom",
+                "oldTo",
+                "newKind",
+                "newFrom",
+                "newTo"));
     return json.valueToTree(
-        registry.values().stream()
-            .map(
-                t -> {
-                  var properties = new TreeMap<String, Object>();
-                  t.fields.forEach(
-                      (name, description) ->
-                          properties.put(
-                              name,
-                              name.toLowerCase(Locale.ROOT).endsWith("kind")
-                                  ? Map.of(
-                                      "type",
-                                      "string",
-                                      "description",
-                                      description,
-                                      "enum",
-                                      List.of("parent", "spouse"))
-                                  : Map.of(
-                                      "type",
-                                      "string",
-                                      "description",
-                                      description,
-                                      "minLength",
-                                      1,
-                                      "maxLength",
-                                      120)));
-                  return Map.of(
-                      "name",
-                      t.name,
-                      "description",
-                      t.description,
-                      "input_schema",
-                      Map.of(
-                          "type",
-                          "object",
-                          "properties",
-                          properties,
-                          "required",
-                          new TreeSet<>(t.fields.keySet()),
-                          "additionalProperties",
-                          false));
-                })
-            .toList());
+        List.of(
+            Map.of(
+                "name",
+                "apply_family_changes",
+                "description",
+                "Submit ONE complete, ordered mutation plan. Declare new people with unique @refs, then reference them in later operations. Existing people use exact graph IDs. All operations are validated before any writes; invalid plans save nothing. Never guess between same-name people: ask the user instead.",
+                "input_schema",
+                Map.of(
+                    "type",
+                    "object",
+                    "properties",
+                    Map.of(
+                        "operations",
+                        Map.of(
+                            "type",
+                            "array",
+                            "minItems",
+                            1,
+                            "maxItems",
+                            40,
+                            "items",
+                            Map.of("oneOf", variants))),
+                    "required",
+                    List.of("operations"),
+                    "additionalProperties",
+                    false))));
+  }
+
+  private Map<String, Object> schema(String type, String... fields) {
+    var props = new LinkedHashMap<String, Object>();
+    props.put("type", Map.of("type", "string", "enum", List.of(type)));
+    for (var field : fields)
+      props.put(
+          field,
+          field.toLowerCase(Locale.ROOT).endsWith("kind")
+              ? Map.of("type", "string", "enum", List.of("parent", "spouse"))
+              : Map.of("type", "string", "minLength", 1, "maxLength", 120));
+    return Map.of(
+        "type",
+        "object",
+        "properties",
+        props,
+        "required",
+        new ArrayList<>(props.keySet()),
+        "additionalProperties",
+        false);
   }
 
   public Result execute(String name, JsonNode input) {
     try {
-      var tool = registry.get(name);
-      require(tool != null, "UNKNOWN_TOOL", "Unknown tool: " + name);
-      require(input != null && input.isObject(), "INVALID_INPUT", "Tool input must be an object.");
-      var actual = new HashSet<String>();
-      input.fieldNames().forEachRemaining(actual::add);
       require(
-          actual.equals(tool.fields.keySet()),
-          "INVALID_INPUT",
-          "Expected fields: " + new TreeSet<>(tool.fields.keySet()));
-      tool.fields.keySet().forEach(key -> text(input, key));
-      return new Result(false, tool.execute.apply(input));
+          "apply_family_changes".equals(name),
+          "UNKNOWN_TOOL",
+          "Only one apply_family_changes plan is supported.");
+      require(input != null && input.isObject(), "INVALID_INPUT", "A plan must be an object.");
+      var plan = json.treeToValue(input, Plan.class);
+      return new Result(false, store.apply(plan));
     } catch (Invalid e) {
-      return new Result(true, Map.of("code", e.code, "message", e.getMessage()));
+      return new Result(true, Map.of("code", e.code, "message", e.getMessage(), "saved", false));
+    } catch (org.springframework.dao.DataAccessException e) {
+      return new Result(
+          true,
+          Map.of(
+              "code",
+              "PERSISTENCE_FAILED",
+              "message",
+              "Saving failed; the database transaction was rolled back. Please retry.",
+              "saved",
+              false));
+    } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException e) {
+      return new Result(
+          true,
+          Map.of(
+              "code",
+              "INVALID_INPUT",
+              "message",
+              "The plan has malformed or unsupported operations. Nothing was saved.",
+              "saved",
+              false));
     }
-  }
-
-  private static String text(JsonNode input, String field) {
-    var value = input.path(field);
-    require(
-        value.isTextual() && !value.asText().isBlank() && value.asText().length() <= 120,
-        "INVALID_INPUT",
-        "Invalid field: " + field);
-    return value.asText().strip();
-  }
-
-  private static Relationship edge(JsonNode input, String prefix) {
-    return prefix.isEmpty()
-        ? new Relationship(text(input, "kind"), text(input, "fromId"), text(input, "toId"))
-        : new Relationship(
-            text(input, prefix + "Kind"),
-            text(input, prefix + "FromId"),
-            text(input, prefix + "ToId"));
   }
 }

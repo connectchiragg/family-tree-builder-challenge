@@ -45,10 +45,11 @@ class HttpModelClientTest {
             .withProperty(
                 "ANTHROPIC_BASE_URL", "http://127.0.0.1:" + server.getAddress().getPort());
     var client = new HttpModelClient(json, env);
-    var result = client.complete(json.createArrayNode(), json.createArrayNode(), "system");
+    var result = client.summarize(json.createArrayNode(), json.createArrayNode(), "system");
     assertEquals("Hello", result.path("content").get(0).path("text").asText());
     assertEquals("test-model", json.readTree(received.get()).path("model").asText());
     assertEquals("test-key", apiKey.get());
+    assertEquals("none", json.readTree(received.get()).path("tool_choice").path("type").asText());
   }
 
   @Test
