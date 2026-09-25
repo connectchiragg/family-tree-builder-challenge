@@ -45,70 +45,104 @@ class FamilyStoreTest {
     return new Relationship("parent", a.id(), b.id());
   }
 
+  // Fixtures use the same batch entry point as the application.
+  Person create(String name) {
+    var result = store.apply(new Plan(java.util.List.of(new Plan.CreatePerson("@new", name))));
+    return result.graph().people().stream()
+        .filter(p -> p.id().equals(result.createdIds().get("@new")))
+        .findFirst()
+        .orElseThrow();
+  }
+
+  java.util.List<Person> find(String name) {
+    return store.graph().people().stream().filter(p -> p.name().equalsIgnoreCase(name)).toList();
+  }
+
+  void add(Relationship edge) {
+    store.apply(
+        new Plan(
+            java.util.List.of(new Plan.AddRelationship(edge.kind(), edge.fromId(), edge.toId()))));
+  }
+
+  void rename(String id, String name) {
+    store.apply(new Plan(java.util.List.of(new Plan.RenamePerson(id, name))));
+  }
+
+  void replace(Relationship oldEdge, Relationship newEdge) {
+    store.apply(
+        new Plan(
+            java.util.List.of(
+                new Plan.ReplaceRelationship(
+                    oldEdge.kind(),
+                    oldEdge.fromId(),
+                    oldEdge.toId(),
+                    newEdge.kind(),
+                    newEdge.fromId(),
+                    newEdge.toId()))));
+  }
+
   @Test
   void emptyGraphAndDuplicateNamesWithStableRename() {
     assertTrue(store.graph().people().isEmpty());
-    var first = store.create("John");
-    var second = store.create("John");
+    var first = create("John");
+    var second = create("John");
     assertNotEquals(first.id(), second.id());
-    assertEquals(2, store.find("JOHN").size());
-    store.add(parent(first, second));
-    store.rename(first.id(), "Jon");
-    assertEquals(first.id(), store.find("Jon").getFirst().id());
+    assertEquals(2, find("JOHN").size());
+    add(parent(first, second));
+    rename(first.id(), "Jon");
+    assertEquals(first.id(), find("Jon").getFirst().id());
     assertEquals(1, store.graph().parentEdges().size());
   }
 
   @Test
   void rejectsCyclesSelfLinksMissingPeopleAndThirdParent() {
-    var a = store.create("A");
-    var b = store.create("B");
-    var c = store.create("C");
-    var d = store.create("D");
-    store.add(parent(a, b));
-    store.add(parent(b, c));
-    assertEquals("CYCLE_DETECTED", assertThrows(Invalid.class, () -> store.add(parent(c, a))).code);
-    assertEquals(
-        "SELF_RELATIONSHIP", assertThrows(Invalid.class, () -> store.add(parent(a, a))).code);
+    var a = create("A");
+    var b = create("B");
+    var c = create("C");
+    var d = create("D");
+    add(parent(a, b));
+    add(parent(b, c));
+    assertEquals("CYCLE_DETECTED", assertThrows(Invalid.class, () -> add(parent(c, a))).code);
+    assertEquals("SELF_RELATIONSHIP", assertThrows(Invalid.class, () -> add(parent(a, a))).code);
     assertEquals(
         "PERSON_NOT_FOUND",
-        assertThrows(Invalid.class, () -> store.add(new Relationship("parent", "missing", a.id())))
-            .code);
-    store.add(parent(a, c));
-    store.add(parent(a, c));
-    assertEquals("PARENT_LIMIT", assertThrows(Invalid.class, () -> store.add(parent(d, c))).code);
+        assertThrows(Invalid.class, () -> add(new Relationship("parent", "missing", a.id()))).code);
+    add(parent(a, c));
+    add(parent(a, c));
+    assertEquals("PARENT_LIMIT", assertThrows(Invalid.class, () -> add(parent(d, c))).code);
     assertEquals(3, store.graph().parentEdges().size());
   }
 
   @Test
   void spouseIsUndirectedAndDoesNotImplyParenthood() {
-    var a = store.create("A");
-    var b = store.create("B");
-    var c = store.create("C");
-    store.add(new Relationship("spouse", a.id(), b.id()));
-    store.add(new Relationship("spouse", b.id(), a.id()));
+    var a = create("A");
+    var b = create("B");
+    var c = create("C");
+    add(new Relationship("spouse", a.id(), b.id()));
+    add(new Relationship("spouse", b.id(), a.id()));
     assertEquals(1, store.graph().spouseEdges().size());
     assertTrue(store.graph().parentEdges().isEmpty());
-    assertThrows(Invalid.class, () -> store.add(new Relationship("spouse", a.id(), c.id())));
+    assertThrows(Invalid.class, () -> add(new Relationship("spouse", a.id(), c.id())));
   }
 
   @Test
   void correctionCommitsOrRollsBackAsOneUnit() {
-    var a = store.create("A");
-    var b = store.create("B");
-    var c = store.create("C");
-    store.add(parent(a, b));
-    store.replace(parent(a, b), parent(c, b));
+    var a = create("A");
+    var b = create("B");
+    var c = create("C");
+    add(parent(a, b));
+    replace(parent(a, b), parent(c, b));
     assertEquals(java.util.List.of(new ParentEdge(c.id(), b.id())), store.graph().parentEdges());
     var before = store.graph();
-    assertThrows(Invalid.class, () -> store.replace(parent(c, b), parent(a, a)));
+    assertThrows(Invalid.class, () -> replace(parent(c, b), parent(a, a)));
     assertEquals(before, store.graph());
-    assertThrows(Invalid.class, () -> store.replace(parent(a, b), parent(a, c)));
+    assertThrows(Invalid.class, () -> replace(parent(a, b), parent(a, c)));
     assertEquals(before, store.graph());
   }
 
   @Test
   void committedDataSurvivesNewConnection() throws Exception {
-    store.create("Persistent");
+    create("Persistent");
     try (var connection = DriverManager.getConnection("jdbc:sqlite:" + DB);
         var statement = connection.createStatement();
         var rows = statement.executeQuery("SELECT name FROM person")) {
@@ -119,8 +153,8 @@ class FamilyStoreTest {
 
   @Test
   void concurrentParentWritesCannotExceedLimit() throws Exception {
-    var child = store.create("Child");
-    var parents = java.util.List.of(store.create("A"), store.create("B"), store.create("C"));
+    var child = create("Child");
+    var parents = java.util.List.of(create("A"), create("B"), create("C"));
     try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       var futures =
           parents.stream()
@@ -129,7 +163,7 @@ class FamilyStoreTest {
                       executor.submit(
                           () -> {
                             try {
-                              store.add(parent(p, child));
+                              add(parent(p, child));
                               return true;
                             } catch (Invalid e) {
                               return false;
@@ -153,7 +187,7 @@ class FamilyStoreTest {
                     new Plan.CreatePerson("@b", "John"),
                     new Plan.AddRelationship("parent", "@a", "@b"))));
     assertEquals(2, result.createdIds().size());
-    assertEquals(2, store.find("John").size());
+    assertEquals(2, find("John").size());
     assertEquals(1, result.graph().parentEdges().size());
   }
 
@@ -216,25 +250,25 @@ class FamilyStoreTest {
 
   @Test
   void laterRenameWinsWithoutSnapshotRejection() {
-    var person = store.create("Initial");
-    store.rename(person.id(), "Earlier edit");
+    var person = create("Initial");
+    rename(person.id(), "Earlier edit");
     store.apply(new Plan(java.util.List.of(new Plan.RenamePerson(person.id(), "Latest edit"))));
-    assertEquals(person.id(), store.find("Latest edit").getFirst().id());
+    assertEquals(person.id(), find("Latest edit").getFirst().id());
   }
 
   @Test
   void deletePersonRemovesIncidentEdgesButKeepsNamesakesAndOtherPeople() {
-    var john = store.create("John");
-    var otherJohn = store.create("John");
-    var parent = store.create("Parent");
-    var spouse = store.create("Spouse");
-    var child = store.create("Child");
-    store.add(parent(parent, john));
-    store.add(parent(john, child));
-    store.add(new Relationship("spouse", john.id(), spouse.id()));
-    store.add(parent(parent, otherJohn));
+    var john = create("John");
+    var otherJohn = create("John");
+    var parent = create("Parent");
+    var spouse = create("Spouse");
+    var child = create("Child");
+    add(parent(parent, john));
+    add(parent(john, child));
+    add(new Relationship("spouse", john.id(), spouse.id()));
+    add(parent(parent, otherJohn));
     store.apply(new Plan(java.util.List.of(new Plan.DeletePerson(john.id()))));
-    assertEquals(java.util.List.of(otherJohn), store.find("John"));
+    assertEquals(java.util.List.of(otherJohn), find("John"));
     assertEquals(4, store.graph().people().size());
     assertEquals(
         java.util.List.of(new ParentEdge(parent.id(), otherJohn.id())),
@@ -244,9 +278,9 @@ class FamilyStoreTest {
 
   @Test
   void failedBatchAfterDeletionLeavesOriginalPersonAndEdgesUntouched() {
-    var a = store.create("A");
-    var b = store.create("B");
-    store.add(parent(a, b));
+    var a = create("A");
+    var b = create("B");
+    add(parent(a, b));
     var before = store.graph();
     org.mockito.Mockito.clearInvocations(db);
     assertThrows(

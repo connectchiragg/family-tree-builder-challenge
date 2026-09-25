@@ -3,7 +3,6 @@ package pro.workhero.family;
 import static pro.workhero.family.Family.*;
 
 import java.util.*;
-import java.util.function.Function;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -82,53 +81,6 @@ public class FamilyStore {
   private Relationship edge(
       String kind, String from, String to, Map<String, String> refs, GraphDraft draft) {
     return new Relationship(kind, resolve(from, refs, draft), resolve(to, refs, draft));
-  }
-
-  public List<Person> find(String name) {
-    return graph().people().stream().filter(p -> p.name().equalsIgnoreCase(name.strip())).toList();
-  }
-
-  public Person create(String name) {
-    return change(d -> d.create(name));
-  }
-
-  public Person rename(String id, String name) {
-    return change(d -> d.rename(id, name));
-  }
-
-  public Graph add(Relationship edge) {
-    change(
-        d -> {
-          d.add(edge);
-          return null;
-        });
-    return graph();
-  }
-
-  public Graph remove(Relationship edge) {
-    change(
-        d -> {
-          d.remove(edge);
-          return null;
-        });
-    return graph();
-  }
-
-  public Graph replace(Relationship oldEdge, Relationship newEdge) {
-    change(
-        d -> {
-          d.replace(oldEdge, newEdge);
-          return null;
-        });
-    return graph();
-  }
-
-  private <T> T change(Function<GraphDraft, T> operation) {
-    var before = graph();
-    var draft = new GraphDraft(before);
-    var result = operation.apply(draft);
-    persist(before, draft.graph());
-    return result;
   }
 
   private void persist(Graph before, Graph after) {

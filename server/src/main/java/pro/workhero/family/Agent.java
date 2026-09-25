@@ -99,15 +99,8 @@ public class Agent {
       var result =
           uses.size() == 1
               ? tools.execute(uses.getFirst().path("name").asText(), uses.getFirst().path("input"))
-              : new Tools.Result(
-                  true,
-                  Map.of(
-                      "code",
-                      "MULTIPLE_PLANS",
-                      "saved",
-                      false,
-                      "message",
-                      "Submit one complete plan per turn. Nothing was saved."));
+              : Tools.Result.failure(
+                  "MULTIPLE_PLANS", "Submit one complete plan per turn. Nothing was saved.");
       messages.addObject().put("role", "assistant").set("content", content);
       var results = json.createArrayNode();
       for (var use : uses)

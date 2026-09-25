@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
-import java.util.Map;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
@@ -38,19 +37,10 @@ public class HttpModelClient implements ModelClient {
       throw new Unavailable("Set ANTHROPIC_API_KEY in server/.env to enable chat.");
     try {
       var payload =
-          new java.util.LinkedHashMap<String, Object>(
-              Map.of(
-                  "model",
-                  model,
-                  "max_tokens",
-                  4096,
-                  "system",
-                  system,
-                  "tools",
-                  tools,
-                  "messages",
-                  messages));
-      payload.put("tool_choice", Map.of("type", explainOnly ? "none" : "auto"));
+          json.createObjectNode().put("model", model).put("max_tokens", 4096).put("system", system);
+      payload.set("tools", tools);
+      payload.set("messages", messages);
+      payload.putObject("tool_choice").put("type", explainOnly ? "none" : "auto");
       var body = json.writeValueAsString(payload);
       var request =
           HttpRequest.newBuilder(URI.create(base + "/v1/messages"))

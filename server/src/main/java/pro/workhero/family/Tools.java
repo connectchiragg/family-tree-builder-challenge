@@ -8,7 +8,11 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class Tools {
-  public record Result(boolean error, Object value) {}
+  public record Result(boolean error, Object value) {
+    static Result failure(String code, String message) {
+      return new Result(true, Map.of("code", code, "message", message, "saved", false));
+    }
+  }
 
   private final FamilyStore store;
   private final ObjectMapper json;
@@ -48,33 +52,24 @@ public class Tools {
                 "newKind",
                 "newFrom",
                 "newTo"));
-    return json.valueToTree(
-        List.of(
-            Map.of(
-                "name",
-                "apply_family_changes",
+    var input = json.createObjectNode().put("type", "object").put("additionalProperties", false);
+    input.putArray("required").add("operations");
+    input
+        .putObject("properties")
+        .putObject("operations")
+        .put("type", "array")
+        .put("minItems", 1)
+        .put("maxItems", 40)
+        .putObject("items")
+        .set("oneOf", json.valueToTree(variants));
+    var tool =
+        json.createObjectNode()
+            .put("name", "apply_family_changes")
+            .put(
                 "description",
-                "Submit ONE complete, ordered mutation plan. Declare new people with unique @refs, then reference them in later operations. Existing people use exact graph IDs. All operations are validated before any writes; invalid plans save nothing. Never guess between same-name people: ask the user instead.",
-                "input_schema",
-                Map.of(
-                    "type",
-                    "object",
-                    "properties",
-                    Map.of(
-                        "operations",
-                        Map.of(
-                            "type",
-                            "array",
-                            "minItems",
-                            1,
-                            "maxItems",
-                            40,
-                            "items",
-                            Map.of("oneOf", variants))),
-                    "required",
-                    List.of("operations"),
-                    "additionalProperties",
-                    false))));
+                "Submit one complete ordered plan. Declare new people with unique @refs; existing people use graph IDs. Invalid plans save nothing. Clarify ambiguous names before calling.");
+    tool.set("input_schema", input);
+    return json.createArrayNode().add(tool);
   }
 
   private Map<String, Object> schema(String type, String... fields) {
@@ -107,27 +102,14 @@ public class Tools {
       var plan = json.treeToValue(input, Plan.class);
       return new Result(false, store.apply(plan));
     } catch (Invalid e) {
-      return new Result(true, Map.of("code", e.code, "message", e.getMessage(), "saved", false));
+      return Result.failure(e.code, e.getMessage());
     } catch (org.springframework.dao.DataAccessException e) {
-      return new Result(
-          true,
-          Map.of(
-              "code",
-              "PERSISTENCE_FAILED",
-              "message",
-              "Saving failed; the database transaction was rolled back. Please retry.",
-              "saved",
-              false));
+      return Result.failure(
+          "PERSISTENCE_FAILED",
+          "Saving failed; the database transaction was rolled back. Please retry.");
     } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException e) {
-      return new Result(
-          true,
-          Map.of(
-              "code",
-              "INVALID_INPUT",
-              "message",
-              "The plan has malformed or unsupported operations. Nothing was saved.",
-              "saved",
-              false));
+      return Result.failure(
+          "INVALID_INPUT", "The plan has malformed or unsupported operations. Nothing was saved.");
     }
   }
 }
