@@ -12,7 +12,7 @@ cd family-tree-builder-challenge
 ./start.sh
 ```
 
-The script installs Node dependencies, prompts for your **OpenRouter API key** only when absent, and starts both services. Key entry is hidden and saved in Git-ignored `server/.env`; existing configuration is preserved. Maven downloads backend dependencies on startup. Java, Maven, and Node must already be installed.
+The script installs Node dependencies, prompts for your **OpenRouter API key** only when absent, starts the backend, waits for its database health check to pass, then opens the UI. Key entry is hidden and saved in Git-ignored `server/.env`; existing configuration is preserved. Maven downloads backend dependencies on startup. Java, Maven, and Node must already be installed.
 
 Run `./start.sh` again for subsequent starts, or `npm run dev` to skip dependency installation.
 
