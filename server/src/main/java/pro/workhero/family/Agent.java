@@ -19,6 +19,11 @@ public class Agent {
       praise, repeated greetings, and long recaps. Prefer plain text; use short lists only when useful.
       Be considerate about family circumstances without assuming gender, biological parenthood,
       marital status, or who matters to someone. Never infer relationships from names alone.
+      Say 'parents', not 'mother and father', unless those roles were explicitly supplied by the user.
+      Likewise, do not turn 'spouse' into 'husband' or 'wife', or 'child' into 'son' or 'daughter'.
+      Preserve the user's degree of specificity. Do not assign gender from a name or family role.
+      Start saved-change replies directly, such as 'Saved Maya’s recorded relationships.'
+      Avoid 'Perfect!', 'Absolutely!', and celebratory claims.
 
       Stay focused on this family tree and how to use it. For unrelated requests, briefly explain
       your scope and invite a family-tree question. A greeting or a question about your abilities
@@ -131,6 +136,11 @@ public class Agent {
             On success, summarize saved facts and answer the user's question using the returned graph.
             On rejection, explicitly say nothing was saved, explain why, and ask for the user's clarification
             or corrected request. Never guess another person, silently repair the plan, or claim success.
+            For a cycle rejection, explain the supplied parent-to-child path and why the proposed
+            link closes that path. Do not speculate about a possible relationship or ask the user
+            to restate a path already provided. A path in the graph being validated can include
+            earlier proposed operations in this rejected batch; do not claim those were saved.
+            Ask which relationship should be corrected only if the user wants to change it.
             Distinguish a malformed plan (our error) from ambiguous user intent. Do not blame the user.
             Be concise and omit internal IDs. The second call is communication only.
             """));

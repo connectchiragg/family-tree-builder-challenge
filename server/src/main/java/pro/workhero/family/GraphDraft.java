@@ -45,10 +45,18 @@ final class GraphDraft {
           parents.stream().filter(p -> p.childId().equals(e.toId())).count() < 2,
           "PARENT_LIMIT",
           "A child can have at most two recorded parents.");
+      var path = ancestryPath(e.toId(), e.fromId());
       require(
-          !reaches(e.toId(), e.fromId()),
+          path.isEmpty(),
           "CYCLE_DETECTED",
-          "This parent relationship would create a cycle.");
+          "Cannot make "
+              + people.get(e.fromId()).name()
+              + " a parent of "
+              + people.get(e.toId()).name()
+              + ". The graph being validated already contains this "
+              + "parent-to-child path: "
+              + String.join(" → ", path.stream().map(id -> people.get(id).name()).toList())
+              + ". Adding the reverse link would make someone their own ancestor.");
       parents.add(edge);
     } else {
       var edge = ordered(e);
@@ -103,20 +111,26 @@ final class GraphDraft {
         "A person cannot have a relationship to themselves.");
   }
 
-  private boolean reaches(String start, String target) {
+  private List<String> ancestryPath(String start, String target) {
     var pending = new ArrayDeque<String>();
-    var seen = new HashSet<String>();
+    var previous = new HashMap<String, String>();
     pending.add(start);
+    previous.put(start, null);
     while (!pending.isEmpty()) {
       var id = pending.removeFirst();
-      if (id.equals(target)) return true;
-      if (seen.add(id))
-        parents.stream()
-            .filter(e -> e.parentId().equals(id))
-            .map(ParentEdge::childId)
-            .forEach(pending::add);
+      if (id.equals(target)) {
+        var path = new LinkedList<String>();
+        for (var node = target; node != null; node = previous.get(node)) path.addFirst(node);
+        return path;
+      }
+      for (var edge : parents) {
+        if (edge.parentId().equals(id) && !previous.containsKey(edge.childId())) {
+          previous.put(edge.childId(), id);
+          pending.add(edge.childId());
+        }
+      }
     }
-    return false;
+    return List.of();
   }
 
   private SpouseEdge ordered(Relationship e) {
