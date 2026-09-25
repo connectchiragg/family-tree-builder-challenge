@@ -182,3 +182,36 @@ body {
   z-index: 5;
   pointer-events: none;
 }
+
+.graph-panel { display: flex; flex-direction: column; min-width: 0; }
+.family-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 20px 24px 12px; }
+.family-toolbar h2 { margin: 0; font-size: 20px; color: var(--text-h); }
+.family-toolbar p { margin: 4px 0 0; font-size: 12px; }
+.tree-canvas { flex: 1; min-height: 0; }
+.person-card { width: 168px; height: 64px; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel-bg); box-shadow: 0 3px 12px #0001; text-align: center; }
+.person-card strong { color: var(--text-h); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-card span { color: var(--text); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-card .react-flow__handle { opacity: 0; pointer-events: none; }
+.react-flow__edge.parent-line path { stroke: var(--accent); stroke-width: 1.7; }
+.react-flow__edge.spouse-line path { stroke: var(--accent); stroke-width: 1.7; }
+.react-flow__controls-button { background: var(--panel-bg); fill: var(--text-h); border-color: var(--border); color: var(--text-h); }
+.react-flow__controls-button:hover { background: var(--user-bubble); }
+.family-empty { margin: auto; padding: 30px; text-align: center; font-size: 14px; }
+.family-empty strong { color: var(--text-h); }
+.family-empty p { max-width: 32ch; }
+@media (max-width: 600px) {
+  .family-toolbar { padding: 12px 16px; }
+}
+
+.person-search { position: relative; width: min(240px, 48%); }
+.person-search input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-bg); color: var(--text-h); font: inherit; font-size: 13px; }
+.person-search-results { position: absolute; top: calc(100% + 6px); right: 0; width: 100%; min-width: 200px; max-height: 280px; overflow-y: auto; z-index: 10; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px #0003; }
+.person-search-results button { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; border: 0; padding: 10px 12px; background: transparent; color: var(--text-h); cursor: pointer; }
+.person-search-results button:hover, .person-search-results button:focus-visible { background: var(--user-bubble); }
+.person-search-results span, .person-search-results small { color: var(--text); font-size: 11px; }
+.person-search-results p { padding: 10px 12px; }
+.search-highlight .person-card { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+.chat-toolbar { display: flex; justify-content: flex-end; padding: 8px 12px; }
+.chat-toolbar button { background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; }
+.chat-toolbar button:disabled { opacity: .5; cursor: default; }

@@ -1,0 +1,50 @@
+/* Static theme avoids SBA 3.5 bean expressions rejected by newer Thymeleaf. */
+:root {
+  --main-50: 238, 242, 255;
+  --main-100: 224, 231, 255;
+  --main-200: 199, 210, 254;
+  --main-300: 165, 180, 252;
+  --main-400: 129, 140, 248;
+  --main-500: 99, 102, 241;
+  --main-600: 79, 70, 229;
+  --main-700: 67, 56, 202;
+  --main-800: 55, 48, 163;
+  --main-900: 49, 46, 129;
+  --bg-color-start: #a5b4fc;
+  --bg-color-stop: #4338ca;
+}
+
+/* Dark-only overrides for the bundled Spring Boot Admin components. */
+:root { color-scheme: dark; }
+html body { background: #10121a; color: #e2e5ef; }
+#app :is(.bg-white, .table, input, select, textarea) {
+  background-color: #1c2030; color: #e2e5ef;
+}
+#app :is(.bg-gray-50, .bg-gray-100, .bg-gray-200, .bg-main-50, .bg-main-100, thead) {
+  background-color: #242a3d; color: #e2e5ef;
+}
+#app :is([class*="text-gray-"], .text-black) { color: #c5ccdf; }
+#app :is([class*="border-gray-"], .table td, .table th, input, select, textarea) {
+  border-color: #394158;
+}
+#app :is([class*="hover:bg-gray-"], [class*="hover:bg-main-"]):hover {
+  background-color: #343d59;
+}
+#app :is(.text-main-600, .text-main-700, .text-main-800) { color: #a5b4fc; }
+#app input::placeholder { color: #929db8; }
+#app :focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+#app .domain, #app .tick line { stroke: #59627c; }
+#app .tick text { fill: #c5ccdf; }
+#app :is(.navbar-link, .instance-info-block, .btn) {
+  background-color: #242a3d; color: #dce2f4; border-color: #394158;
+}
+#app :is(.navbar-link:hover, .navbar-link__active, .btn:hover) {
+  background-color: #384264; color: #fff;
+}
+#app .log-viewer, #app .log-viewer pre {
+  background-color: #141824; color: #dce2f4;
+}
+#app .log-viewer pre:nth-child(even) { background-color: #1c2130; }
+#app .log-viewer pre:hover { background-color: #2c344a; }
+#app .log-viewer :is(table, tr, td, pre) { border-color: #2c344a; }
+#app .log-viewer tr:nth-child(even) pre { background-color: #1c2130; }
