@@ -24,3 +24,22 @@ test('single parent/child and empty graph have valid connector output', () => {
   const [c]=familyConnectors([edge('a','c')],positions);
   assert.ok(!/NaN|undefined/.test(c.path));assert.equal(c.stem,84);
 });
+
+test('interleaved families use separate bars and breaks at unrelated crossings', () => {
+  const positions = new Map([
+    ['a', {x:0,y:0}], ['b', {x:200,y:0}],
+    ['e', {x:400,y:0}], ['f', {x:600,y:0}],
+    ['c', {x:0,y:164}], ['g', {x:200,y:164}],
+    ['d', {x:400,y:164}], ['h', {x:600,y:164}],
+  ]);
+  const edges = [['a','c'],['b','c'],['a','d'],['b','d'],
+    ['e','g'],['f','g'],['e','h'],['f','h']].map(([p,c]) => edge(p,c));
+  const [first, second] = familyConnectors(edges, positions);
+  assert.ok(second.siblingBar - first.siblingBar >= 20);
+  assert.notEqual(first.parentBar, second.parentBar);
+  // The first family's right child leg crosses the second sibling bar.
+  assert.ok(first.path.includes(`M 484 ${second.siblingBar + 4} V 164`));
+  assert.ok(first.path.includes(`V ${second.siblingBar - 4}`));
+  assert.deepEqual(first.children, ['c','d']);
+  assert.deepEqual(second.children, ['g','h']);
+});
