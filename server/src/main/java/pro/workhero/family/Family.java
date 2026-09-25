@@ -2,6 +2,7 @@ package pro.workhero.family;
 
 import java.util.List;
 
+/** Shared family data types. People are identified by ID, never by their display name. */
 public final class Family {
   private Family() {}
 

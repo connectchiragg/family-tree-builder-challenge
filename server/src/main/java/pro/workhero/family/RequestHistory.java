@@ -18,7 +18,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class RequestHistory {
   private final JdbcTemplate db;
-  private final TransactionTemplate tx;
+  private final TransactionTemplate transaction;
   private final Agent agent;
   private final FamilyStore store;
   private final ObjectMapper json;
@@ -30,7 +30,7 @@ public class RequestHistory {
       FamilyStore store,
       ObjectMapper json) {
     this.db = db;
-    this.tx = new TransactionTemplate(manager);
+    this.transaction = new TransactionTemplate(manager);
     this.agent = agent;
     this.store = store;
     this.json = json;
@@ -38,6 +38,7 @@ public class RequestHistory {
 
   @EventListener(ApplicationReadyEvent.class)
   public void recover() {
+    // A saved batch must never run twice. Only turns interrupted before saving may retry.
     db.update(
         "UPDATE request_history SET status='completed', updated_at=? WHERE status='applied'",
         System.currentTimeMillis());
@@ -46,52 +47,23 @@ public class RequestHistory {
         System.currentTimeMillis());
   }
 
-  public String reply(String id, JsonNode messages) {
+  public String reply(String requestId, JsonNode messages) {
     require(
-        id != null && id.matches("[a-zA-Z0-9-]{1,80}"),
+        requestId != null && requestId.matches("[a-zA-Z0-9-]{1,80}"),
         "INVALID_INPUT",
         "A requestId is required.");
-    var hash = hash(messages);
-    var cached =
-        tx.execute(
-            status -> {
-              long now = System.currentTimeMillis();
-              int inserted =
-                  db.update(
-                      "INSERT OR IGNORE INTO request_history(request_id,payload_hash,status,created_at,updated_at) VALUES (?,?,'processing',?,?)",
-                      id,
-                      hash,
-                      now,
-                      now);
-              if (inserted == 1) return null;
-              var row = db.queryForMap("SELECT * FROM request_history WHERE request_id=?", id);
-              require(
-                  hash.equals(row.get("payload_hash")),
-                  "REQUEST_CONFLICT",
-                  "This request ID was already used for different content.");
-              var state = row.get("status");
-              require(
-                  !"processing".equals(state),
-                  "REQUEST_IN_PROGRESS",
-                  "This request is still running. Retry shortly with the same request ID.");
-              if ("completed".equals(state) || "applied".equals(state))
-                return (String) row.get("reply");
-              db.update(
-                  "UPDATE request_history SET status='processing', error_code=NULL, updated_at=? WHERE request_id=?",
-                  now,
-                  id);
-              return null;
-            });
-    if (cached != null) return cached;
+    var payloadHash = payloadHash(messages);
+    var previousReply = claimRequest(requestId, payloadHash);
+    if (previousReply != null) return previousReply;
     long started = System.currentTimeMillis();
     try {
-      var reply = agent.reply(messages, id, plan -> apply(id, plan));
+      var reply = agent.reply(messages, requestId, plan -> apply(requestId, plan));
       db.update(
           "UPDATE request_history SET status='completed', reply=?, duration_ms=?, updated_at=? WHERE request_id=?",
           reply,
           System.currentTimeMillis() - started,
           System.currentTimeMillis(),
-          id);
+          requestId);
       return reply;
     } catch (RuntimeException error) {
       // An applied request retains its durable fallback, even if communication fails.
@@ -102,13 +74,47 @@ public class RequestHistory {
               : "REQUEST_FAILED",
           System.currentTimeMillis() - started,
           System.currentTimeMillis(),
-          id);
+          requestId);
       throw error;
     }
   }
 
-  FamilyStore.Applied apply(String id, Plan plan) {
-    return tx.execute(
+  // A retry either returns the saved reply, rejects an active turn, or reclaims a failed turn.
+  private String claimRequest(String requestId, String payloadHash) {
+    return transaction.execute(
+        status -> {
+          long now = System.currentTimeMillis();
+          int inserted =
+              db.update(
+                  "INSERT OR IGNORE INTO request_history(request_id,payload_hash,status,created_at,updated_at) VALUES (?,?,'processing',?,?)",
+                  requestId,
+                  payloadHash,
+                  now,
+                  now);
+          if (inserted == 1) return null;
+          var row = db.queryForMap("SELECT * FROM request_history WHERE request_id=?", requestId);
+          require(
+              payloadHash.equals(row.get("payload_hash")),
+              "REQUEST_CONFLICT",
+              "This request ID was already used for different content.");
+          var state = row.get("status");
+          require(
+              !"processing".equals(state),
+              "REQUEST_IN_PROGRESS",
+              "This request is still running. Retry shortly with the same request ID.");
+          if ("completed".equals(state) || "applied".equals(state))
+            return (String) row.get("reply");
+          db.update(
+              "UPDATE request_history SET status='processing', error_code=NULL, updated_at=? WHERE request_id=?",
+              now,
+              requestId);
+          return null;
+        });
+  }
+
+  FamilyStore.Applied apply(String requestId, Plan plan) {
+    // Save the graph and its receipt together, so a lost reply cannot cause duplicate people.
+    return transaction.execute(
         status -> {
           var result = store.apply(plan);
           int updated =
@@ -116,14 +122,14 @@ public class RequestHistory {
                   "UPDATE request_history SET status='applied', reply=?, updated_at=? WHERE request_id=? AND status='processing'",
                   "Your changes were saved. The family view shows the saved result.",
                   System.currentTimeMillis(),
-                  id);
+                  requestId);
           require(updated == 1, "REQUEST_CONFLICT", "The request is no longer active.");
           return result;
         });
   }
 
   public void clear() {
-    tx.executeWithoutResult(
+    transaction.executeWithoutResult(
         status -> {
           require(
               db.queryForObject(
@@ -136,19 +142,19 @@ public class RequestHistory {
         });
   }
 
-  private String hash(JsonNode messages) {
-    var canonical = json.createArrayNode();
+  private String payloadHash(JsonNode messages) {
+    var canonicalMessages = json.createArrayNode();
     messages.forEach(
-        m ->
-            canonical
+        message ->
+            canonicalMessages
                 .addObject()
-                .put("role", m.path("role").asText())
-                .put("content", m.path("content").asText()));
+                .put("role", message.path("role").asText())
+                .put("content", message.path("content").asText()));
     try {
       return HexFormat.of()
           .formatHex(
               MessageDigest.getInstance("SHA-256")
-                  .digest(canonical.toString().getBytes(StandardCharsets.UTF_8)));
+                  .digest(canonicalMessages.toString().getBytes(StandardCharsets.UTF_8)));
     } catch (java.security.NoSuchAlgorithmException e) {
       throw new IllegalStateException(e);
     }

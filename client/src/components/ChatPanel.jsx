@@ -24,7 +24,10 @@ export default function ChatPanel({ onGraphMightHaveChanged }) {
     setIsSending(true);
     try {
       await clearHistory();
-      setMessages([]); setPending(null); setInput(""); setError(null);
+      setMessages([]);
+      setPending(null);
+      setInput("");
+      setError(null);
     } catch (err) { setError(err.message); }
     finally { setIsSending(false); }
   }
@@ -42,6 +45,7 @@ export default function ChatPanel({ onGraphMightHaveChanged }) {
     setMessages(nextMessages);
     setInput("");
     const request = { messages: nextMessages, id: crypto.randomUUID() };
+    // Retain this ID across retries and reloads so a lost reply cannot duplicate edits.
     setPending(request);
     await send(request);
   }
@@ -55,9 +59,7 @@ export default function ChatPanel({ onGraphMightHaveChanged }) {
       const { reply } = await sendChatMessage(request.messages, request.id);
       setMessages([...request.messages, { role: "assistant", content: reply }]);
       setPending(null);
-      // The graph endpoint is polled independently, but nudging a refresh
-      // right after a turn keeps the visualization feeling responsive once
-      // the candidate's tool calls start actually mutating state.
+      // Show saved changes immediately instead of waiting for the next graph poll.
       onGraphMightHaveChanged?.();
     } catch (err) {
       console.error(err);
@@ -78,12 +80,12 @@ export default function ChatPanel({ onGraphMightHaveChanged }) {
             and Jordan. I have a brother named John."
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`chat-message chat-message--${m.role}`}>
+        {messages.map((message, index) => (
+          <div key={index} className={`chat-message chat-message--${message.role}`}>
             <span className="chat-message__role">
-              {m.role === "user" ? "You" : "Assistant"}
+              {message.role === "user" ? "You" : "Assistant"}
             </span>
-            <p>{m.content}</p>
+            <p>{message.content}</p>
           </div>
         ))}
         {isSending && pending && (

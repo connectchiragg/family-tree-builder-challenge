@@ -48,11 +48,12 @@ public class Agent {
       String requestId,
       java.util.function.Function<Plan, FamilyStore.Applied> apply) {
     long started = System.nanoTime();
-    int calls = 0;
+    int modelCalls = 0;
     try {
-      var snapshot = store.graph();
-      calls++;
-      var response = model.plan(history, PROMPT + "\nCurrent graph: " + json.valueToTree(snapshot));
+      var currentGraph = store.graph();
+      modelCalls++;
+      var response =
+          model.plan(history, PROMPT + "\nCurrent graph: " + json.valueToTree(currentGraph));
       if (response.operations().isEmpty()) return response.message();
       FamilyStore.Applied result;
       try {
@@ -62,33 +63,34 @@ public class Agent {
       } catch (org.springframework.dao.DataAccessException e) {
         return "Nothing was saved. Saving failed; the transaction was rolled back. Please retry.";
       }
-      var saved = "Saved " + response.operations().size() + " requested change(s).";
+      var saveConfirmation = "Saved " + response.operations().size() + " requested change(s).";
       var question = response.answerQuestion();
-      if (question == null) return saved;
+      if (question == null) return saveConfirmation;
       // The answer gets only the resolved question, saved graph without the plan or tool schema.
-      var explanation = json.createArrayNode();
-      explanation
+      var answerMessages = json.createArrayNode();
+      answerMessages
           .addObject()
           .put("role", "user")
           .put(
               "content",
               "Question: " + question + "\nSaved graph: " + json.valueToTree(result.graph()));
-      calls++;
+      modelCalls++;
       try {
         var answer =
             model.answer(
-                explanation, GUIDANCE + "Answer using only the saved graph. No tools or changes.");
-        return saved + "\n" + answer;
+                answerMessages,
+                GUIDANCE + "Answer using only the saved graph. No tools or changes.");
+        return saveConfirmation + "\n" + answer;
       } catch (ModelClient.Unavailable e) {
         // Do not invite a duplicate submission when saving succeeded but wording failed.
-        return saved
+        return saveConfirmation
             + " I couldn't generate the answer; your changes are saved in the family view.";
       }
     } finally {
       log.info(
           "chat request={} modelCalls={} durationMs={}",
           requestId,
-          calls,
+          modelCalls,
           (System.nanoTime() - started) / 1_000_000);
     }
   }

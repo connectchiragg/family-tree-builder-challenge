@@ -12,7 +12,10 @@ public record ModelResponse(
     @Size(max = 2000) @Pattern(regexp = "[\\s\\S]*\\S[\\s\\S]*") String answerQuestion) {
   public ModelResponse {
     operations = List.copyOf(operations);
-    if (operations.isEmpty() ? message == null || answerQuestion != null : message != null)
+    boolean hasEdits = !operations.isEmpty();
+    boolean hasMessage = message != null;
+    // Clarifications cannot also edit the tree; follow-up answers require a saved batch.
+    if (hasEdits == hasMessage || (!hasEdits && answerQuestion != null))
       throw new IllegalArgumentException(
           "Return a message without operations, or operations without a message.");
   }

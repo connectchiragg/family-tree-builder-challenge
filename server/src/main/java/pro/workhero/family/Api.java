@@ -43,7 +43,7 @@ public class Api {
         messages.isArray() && !messages.isEmpty() && messages.size() <= 100,
         "INVALID_INPUT",
         "Provide 1–100 chat messages.");
-    int length = 0;
+    int conversationLength = 0;
     for (var message : messages) {
       var role = message.path("role").asText();
       var content = message.path("content");
@@ -55,11 +55,12 @@ public class Api {
           content.isTextual() && !content.asText().isBlank() && content.asText().length() <= 8000,
           "INVALID_INPUT",
           "Each message must contain 1–8000 characters.");
-      length += content.asText().length();
+      conversationLength += content.asText().length();
       require(message.size() == 2, "INVALID_INPUT", "Messages accept only role and content.");
     }
     require(
-        length <= 32000 && messages.get(messages.size() - 1).path("role").asText().equals("user"),
+        conversationLength <= 32000
+            && messages.get(messages.size() - 1).path("role").asText().equals("user"),
         "INVALID_INPUT",
         "End with a user message; conversation limit is 32000 characters.");
     return Map.of("reply", history.reply(body.path("requestId").asText(), messages));

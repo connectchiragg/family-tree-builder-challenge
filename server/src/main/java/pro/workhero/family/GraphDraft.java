@@ -12,7 +12,7 @@ final class GraphDraft {
   private final Set<SpouseEdge> spouses;
 
   GraphDraft(Graph graph) {
-    graph.people().forEach(p -> people.put(p.id(), p));
+    graph.people().forEach(person -> people.put(person.id(), person));
     parents = new LinkedHashSet<>(graph.parentEdges());
     spouses = new LinkedHashSet<>(graph.spouseEdges());
   }
@@ -25,8 +25,10 @@ final class GraphDraft {
 
   void delete(String id) {
     exists(id);
-    parents.removeIf(e -> e.parentId().equals(id) || e.childId().equals(id));
-    spouses.removeIf(e -> e.personAId().equals(id) || e.personBId().equals(id));
+    parents.removeIf(
+        relationship -> relationship.parentId().equals(id) || relationship.childId().equals(id));
+    spouses.removeIf(
+        relationship -> relationship.personAId().equals(id) || relationship.personBId().equals(id));
     people.remove(id);
   }
 
@@ -37,49 +39,55 @@ final class GraphDraft {
     return person;
   }
 
-  void add(Relationship e) {
-    validate(e);
-    if (e.kind() == RelationshipKind.PARENT) {
-      var edge = new ParentEdge(e.fromId(), e.toId());
-      if (parents.contains(edge)) return;
-      require(
-          parents.stream().filter(p -> p.childId().equals(e.toId())).count() < 2,
-          "PARENT_LIMIT",
-          "A child can have at most two recorded parents.");
-      var path = ancestryPath(e.toId(), e.fromId());
-      require(
-          path.isEmpty(),
-          "CYCLE_DETECTED",
-          "Cannot make "
-              + people.get(e.fromId()).name()
-              + " a parent of "
-              + people.get(e.toId()).name()
-              + ". The graph being validated already contains this "
-              + "parent-to-child path: "
-              + String.join(" → ", path.stream().map(id -> people.get(id).name()).toList())
-              + ". Adding the reverse link would make someone their own ancestor.");
-      parents.add(edge);
-    } else {
-      var edge = ordered(e);
-      if (spouses.contains(edge)) return;
-      require(
-          spouses.stream()
-              .noneMatch(
-                  s ->
-                      Set.of(s.personAId(), s.personBId()).contains(e.fromId())
-                          || Set.of(s.personAId(), s.personBId()).contains(e.toId())),
-          "UNSUPPORTED_REMARRIAGE",
-          "Multiple spouses are outside this exercise's scope.");
-      spouses.add(edge);
-    }
+  void add(Relationship relationship) {
+    validate(relationship);
+    if (relationship.kind() == RelationshipKind.PARENT) addParent(relationship);
+    else addSpouse(relationship);
   }
 
-  void remove(Relationship e) {
-    validate(e);
+  private void addParent(Relationship relationship) {
+    var edge = new ParentEdge(relationship.fromId(), relationship.toId());
+    if (parents.contains(edge)) return;
+    require(
+        parents.stream().filter(parent -> parent.childId().equals(relationship.toId())).count() < 2,
+        "PARENT_LIMIT",
+        "A child can have at most two recorded parents.");
+    var path = ancestryPath(relationship.toId(), relationship.fromId());
+    require(
+        path.isEmpty(),
+        "CYCLE_DETECTED",
+        "Cannot make "
+            + people.get(relationship.fromId()).name()
+            + " a parent of "
+            + people.get(relationship.toId()).name()
+            + ". The graph being validated already contains this "
+            + "parent-to-child path: "
+            + String.join(" → ", path.stream().map(id -> people.get(id).name()).toList())
+            + ". Adding the reverse link would make someone their own ancestor.");
+    parents.add(edge);
+  }
+
+  private void addSpouse(Relationship relationship) {
+    var edge = canonicalSpouseEdge(relationship);
+    if (spouses.contains(edge)) return;
+    require(
+        spouses.stream()
+            .noneMatch(
+                spouse ->
+                    Set.of(spouse.personAId(), spouse.personBId()).contains(relationship.fromId())
+                        || Set.of(spouse.personAId(), spouse.personBId())
+                            .contains(relationship.toId())),
+        "UNSUPPORTED_REMARRIAGE",
+        "Multiple spouses are outside this exercise's scope.");
+    spouses.add(edge);
+  }
+
+  void remove(Relationship relationship) {
+    validate(relationship);
     boolean removed =
-        e.kind() == RelationshipKind.PARENT
-            ? parents.remove(new ParentEdge(e.fromId(), e.toId()))
-            : spouses.remove(ordered(e));
+        relationship.kind() == RelationshipKind.PARENT
+            ? parents.remove(new ParentEdge(relationship.fromId(), relationship.toId()))
+            : spouses.remove(canonicalSpouseEdge(relationship));
     require(removed, "RELATIONSHIP_NOT_FOUND", "The relationship to remove does not exist.");
   }
 
@@ -99,45 +107,47 @@ final class GraphDraft {
     return new Graph(List.copyOf(people.values()), List.copyOf(parents), List.copyOf(spouses));
   }
 
-  private void validate(Relationship e) {
+  private void validate(Relationship relationship) {
     require(
-        e != null && e.kind() != null,
+        relationship != null && relationship.kind() != null,
         "INVALID_INPUT",
         "Relationship kind must be parent or spouse.");
-    exists(e.fromId());
-    exists(e.toId());
+    exists(relationship.fromId());
+    exists(relationship.toId());
     require(
-        !e.fromId().equals(e.toId()),
+        !relationship.fromId().equals(relationship.toId()),
         "SELF_RELATIONSHIP",
         "A person cannot have a relationship to themselves.");
   }
 
-  private List<String> ancestryPath(String start, String target) {
-    var pending = new ArrayDeque<String>();
-    var previous = new HashMap<String, String>();
-    pending.add(start);
-    previous.put(start, null);
-    while (!pending.isEmpty()) {
-      var id = pending.removeFirst();
-      if (id.equals(target)) {
+  // If the proposed child already leads to the parent, adding the link would create a cycle.
+  private List<String> ancestryPath(String descendantId, String ancestorId) {
+    var peopleToVisit = new ArrayDeque<String>();
+    var predecessor = new HashMap<String, String>();
+    peopleToVisit.add(descendantId);
+    predecessor.put(descendantId, null);
+    while (!peopleToVisit.isEmpty()) {
+      var id = peopleToVisit.removeFirst();
+      if (id.equals(ancestorId)) {
         var path = new LinkedList<String>();
-        for (var node = target; node != null; node = previous.get(node)) path.addFirst(node);
+        for (var node = ancestorId; node != null; node = predecessor.get(node)) path.addFirst(node);
         return path;
       }
       for (var edge : parents) {
-        if (edge.parentId().equals(id) && !previous.containsKey(edge.childId())) {
-          previous.put(edge.childId(), id);
-          pending.add(edge.childId());
+        if (edge.parentId().equals(id) && !predecessor.containsKey(edge.childId())) {
+          predecessor.put(edge.childId(), id);
+          peopleToVisit.add(edge.childId());
         }
       }
     }
     return List.of();
   }
 
-  private SpouseEdge ordered(Relationship e) {
-    return e.fromId().compareTo(e.toId()) < 0
-        ? new SpouseEdge(e.fromId(), e.toId())
-        : new SpouseEdge(e.toId(), e.fromId());
+  // Marriage has no direction: A–B and B–A must represent the same relationship.
+  private SpouseEdge canonicalSpouseEdge(Relationship relationship) {
+    return relationship.fromId().compareTo(relationship.toId()) < 0
+        ? new SpouseEdge(relationship.fromId(), relationship.toId())
+        : new SpouseEdge(relationship.toId(), relationship.fromId());
   }
 
   private String validName(String name) {

@@ -49,15 +49,15 @@ export default function GraphView({ refreshSignal }) {
 
   const { nodes, edges, families } = useMemo(() => {
     const { positions, families } = familyLayout(graph);
-    const names = new Map(graph.people.map(p => [p.id, p.name]));
-    const relations = new Map(graph.people.map(p => [p.id, { parents: [] }]));
-    graph.parentEdges.forEach(e => {
-      relations.get(e.childId)?.parents.push(e.parentId);
+    const namesById = new Map(graph.people.map(person => [person.id, person.name]));
+    const parentsByChild = new Map(graph.people.map(person => [person.id, []]));
+    graph.parentEdges.forEach(edge => {
+      parentsByChild.get(edge.childId)?.push(edge.parentId);
     });
-    const describe = ids => ids.map(id => names.get(id)).join(" & ");
-    const nodes = graph.people.map(p => ({
-      id: p.id, type: "person", position: positions.get(p.id),
-      data: { name: p.name, context: relations.get(p.id).parents.length ? `Child of ${describe(relations.get(p.id).parents)}` : "No parents recorded" },
+    const describe = ids => ids.map(id => namesById.get(id)).join(" & ");
+    const nodes = graph.people.map(person => ({
+      id: person.id, type: "person", position: positions.get(person.id),
+      data: { name: person.name, context: parentsByChild.get(person.id).length ? `Child of ${describe(parentsByChild.get(person.id))}` : "No parents recorded" },
       width: CARD_WIDTH, height: CARD_HEIGHT,
     }));
     const connectors = familyConnectors(graph.parentEdges, positions);
@@ -67,14 +67,15 @@ export default function GraphView({ refreshSignal }) {
       data: { path: group.path },
       ariaLabel: `${describe(group.parents)} are parents of ${describe(group.children)}`,
     }));
-    graph.spouseEdges.forEach(e => {
-      if (connectors.some(group => group.parents.includes(e.personAId) && group.parents.includes(e.personBId))) return;
-      const a = positions.get(e.personAId), b = positions.get(e.personBId);
-      const left = a.x <= b.x ? e.personAId : e.personBId;
-      const right = left === e.personAId ? e.personBId : e.personAId;
+    graph.spouseEdges.forEach(edge => {
+      if (connectors.some(group => group.parents.includes(edge.personAId) && group.parents.includes(edge.personBId))) return;
+      const firstPartner = positions.get(edge.personAId);
+      const secondPartner = positions.get(edge.personBId);
+      const left = firstPartner.x <= secondPartner.x ? edge.personAId : edge.personBId;
+      const right = left === edge.personAId ? edge.personBId : edge.personAId;
       edges.push({ id: `spouse-${left}-${right}`, source: left, target: right,
-        sourceHandle: "spouse-right", targetHandle: "spouse-left", type: a.y === b.y ? "straight" : "smoothstep",
-        className: "spouse-line", ariaLabel: `${names.get(left)} and ${names.get(right)} are spouses`,
+        sourceHandle: "spouse-right", targetHandle: "spouse-left", type: firstPartner.y === secondPartner.y ? "straight" : "smoothstep",
+        className: "spouse-line", ariaLabel: `${namesById.get(left)} and ${namesById.get(right)} are spouses`,
       });
     });
     return { nodes, edges, families };

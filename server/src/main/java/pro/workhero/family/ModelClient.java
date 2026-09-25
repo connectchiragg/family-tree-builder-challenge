@@ -17,7 +17,7 @@ public class ModelClient {
   private final ObjectMapper json;
   private final MeterRegistry metrics;
   private final Validator validator;
-  private final String key, model, base;
+  private final String apiKey, model, baseUrl;
   private final HttpClient http =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
@@ -35,9 +35,10 @@ public class ModelClient {
         }) this.json.coercionConfigFor(LogicalType.Textual).setCoercion(shape, CoercionAction.Fail);
     this.metrics = metrics;
     this.validator = validator;
-    key = env.getProperty("ANTHROPIC_API_KEY", "");
+    apiKey = env.getProperty("ANTHROPIC_API_KEY", "");
     model = env.getProperty("ANTHROPIC_MODEL", "anthropic/claude-sonnet-4");
-    base = env.getProperty("ANTHROPIC_BASE_URL", "https://openrouter.ai/api").replaceAll("/+$", "");
+    baseUrl =
+        env.getProperty("ANTHROPIC_BASE_URL", "https://openrouter.ai/api").replaceAll("/+$", "");
   }
 
   public ModelResponse plan(JsonNode messages, String system) {
@@ -61,42 +62,22 @@ public class ModelClient {
   }
 
   private ModelResponse send(JsonNode messages, String system, boolean planning) {
-    if (key.isBlank())
+    if (apiKey.isBlank())
       throw new Unavailable("Set ANTHROPIC_API_KEY in server/.env to enable chat.");
     var sample = Timer.start(metrics);
     var phase = planning ? "plan" : "answer";
     var outcome = "error";
     try {
-      var payload =
-          json.createObjectNode().put("model", model).put("max_tokens", 4096).put("system", system);
-      payload.set("messages", messages);
-      if (planning) {
-        payload
-            .putArray("tools")
-            .add(
-                json.valueToTree(
-                    java.util.Map.of(
-                        "name",
-                        "respond",
-                        "description",
-                        "Return one response; this does not execute changes.",
-                        "input_schema",
-                        ModelResponse.schema())));
-        payload
-            .putObject("tool_choice")
-            .put("type", "tool")
-            .put("name", "respond")
-            .put("disable_parallel_tool_use", true);
-      } else payload.putObject("tool_choice").put("type", "none");
+      var payload = requestPayload(messages, system, planning);
       var body = json.writeValueAsString(payload);
       var request =
-          HttpRequest.newBuilder(URI.create(base + "/v1/messages"))
+          HttpRequest.newBuilder(URI.create(baseUrl + "/v1/messages"))
               .timeout(Duration.ofSeconds(30))
               .header("Content-Type", "application/json")
               .header("anthropic-version", "2023-06-01");
-      if (URI.create(base).getHost().equals("openrouter.ai"))
-        request.header("Authorization", "Bearer " + key);
-      else request.header("x-api-key", key);
+      if (URI.create(baseUrl).getHost().equals("openrouter.ai"))
+        request.header("Authorization", "Bearer " + apiKey);
+      else request.header("x-api-key", apiKey);
       var response =
           http.send(
               request.POST(HttpRequest.BodyPublishers.ofString(body)).build(),
@@ -111,40 +92,8 @@ public class ModelClient {
               .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
               .with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
               .readTree(response.body());
-      for (var direction : java.util.List.of("input", "output")) {
-        var tokens = result.path("usage").path(direction + "_tokens");
-        if (tokens.isNumber() && tokens.asDouble() >= 0)
-          metrics
-              .counter("llm.tokens", "phase", phase, "direction", direction)
-              .increment(tokens.asDouble());
-      }
-      if (!result.path("stop_reason").asText().equals(planning ? "tool_use" : "end_turn")
-          || !result.path("content").isArray())
-        throw new Unavailable("Model returned incomplete output or declined the request.");
-      var uses =
-          java.util.stream.StreamSupport.stream(result.path("content").spliterator(), false)
-              .filter(b -> b.path("type").asText().equals("tool_use"))
-              .toList();
-      ModelResponse value;
-      if (planning) {
-        if (uses.size() != 1 || !uses.getFirst().path("name").asText().equals("respond"))
-          throw new Unavailable("Model must return one structured response.");
-        value = parse(uses.getFirst().path("input"));
-      } else {
-        if (!uses.isEmpty()) throw new Unavailable("Unexpected tool request during explanation.");
-        var text = new StringBuilder();
-        for (var block : result.path("content")) {
-          if (!block.path("type").asText().equals("text")) continue;
-          if (!block.path("text").isTextual()) throw new Unavailable("Invalid model answer.");
-          if (!text.isEmpty()) text.append('\n');
-          text.append(block.path("text").asText());
-        }
-        value =
-            parse(
-                json.createObjectNode()
-                    .put("message", text.toString().strip())
-                    .set("operations", json.createArrayNode()));
-      }
+      recordTokenUsage(result, phase);
+      var value = readResponse(result, planning);
       outcome = "success";
       return value;
     } catch (InterruptedException e) {
@@ -154,6 +103,72 @@ public class ModelClient {
       throw new Unavailable("Model provider unavailable or timed out.");
     } finally {
       sample.stop(metrics.timer("llm.request", "phase", phase, "outcome", outcome));
+    }
+  }
+
+  private com.fasterxml.jackson.databind.node.ObjectNode requestPayload(
+      JsonNode messages, String system, boolean planning) {
+    var payload =
+        json.createObjectNode().put("model", model).put("max_tokens", 4096).put("system", system);
+    payload.set("messages", messages);
+    if (planning) {
+      payload
+          .putArray("tools")
+          .add(
+              json.valueToTree(
+                  java.util.Map.of(
+                      "name",
+                      "respond",
+                      "description",
+                      "Return one response; this does not execute changes.",
+                      "input_schema",
+                      ModelResponse.schema())));
+      payload
+          .putObject("tool_choice")
+          .put("type", "tool")
+          .put("name", "respond")
+          .put("disable_parallel_tool_use", true);
+    } else payload.putObject("tool_choice").put("type", "none");
+    return payload;
+  }
+
+  private void recordTokenUsage(JsonNode result, String phase) {
+    for (var direction : java.util.List.of("input", "output")) {
+      var tokens = result.path("usage").path(direction + "_tokens");
+      if (tokens.isNumber() && tokens.asDouble() >= 0)
+        metrics
+            .counter("llm.tokens", "phase", phase, "direction", direction)
+            .increment(tokens.asDouble());
+    }
+  }
+
+  // Planning returns a proposed batch; the answer phase cannot request more changes.
+  private ModelResponse readResponse(JsonNode result, boolean planning) {
+    if (!result.path("stop_reason").asText().equals(planning ? "tool_use" : "end_turn")
+        || !result.path("content").isArray())
+      throw new Unavailable("Model returned incomplete output or declined the request.");
+    var toolCalls =
+        java.util.stream.StreamSupport.stream(result.path("content").spliterator(), false)
+            .filter(block -> block.path("type").asText().equals("tool_use"))
+            .toList();
+    if (planning) {
+      if (toolCalls.size() != 1 || !toolCalls.getFirst().path("name").asText().equals("respond"))
+        throw new Unavailable("Model must return one structured response.");
+      return parse(toolCalls.getFirst().path("input"));
+    } else {
+      if (!toolCalls.isEmpty())
+        throw new Unavailable("Unexpected tool request during explanation.");
+      var text = new StringBuilder();
+      for (var block : result.path("content")) {
+        if (!block.path("type").asText().equals("text")) continue;
+        if (!block.path("text").isTextual()) throw new Unavailable("Invalid model answer.");
+        if (!text.isEmpty()) text.append('\n');
+        text.append(block.path("text").asText());
+      }
+      return parse(
+          json.createObjectNode()
+              .put("message", text.toString().strip())
+              .set("operations", json.createArrayNode()));
     }
   }
 
