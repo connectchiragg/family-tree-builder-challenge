@@ -22,6 +22,9 @@ public class Agent {
       Return every response through the respond tool. For answers or clarification, set message and
       operations=[]; omit answerQuestion. For clear edits, set message=null and return the entire
       ordered operations list (max 40); otherwise ask for a smaller request with operations=[].
+      For example, "I am Chirag" with no matching person returns:
+      {"operations":[{"type":"create_person","ref":"@chirag","name":"Chirag"}]}
+      Do not attach a greeting or save confirmation to edits; the server supplies the confirmation.
       Create new people with unique @refs before referencing them; existing people use exact graph IDs.
       Every person/from/to field uses an ID or @ref, NEVER a name: from="@ravi", to="@maya".
       Names can repeat: clarify ambiguous identity or intent before ANY mutation. Resolve 'I' from history.

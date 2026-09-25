@@ -11,6 +11,9 @@ public record ModelResponse(
     @NotNull @Size(max = 40) List<@NotNull @Valid Operation> operations,
     @Size(max = 2000) @Pattern(regexp = "[\\s\\S]*\\S[\\s\\S]*") String answerQuestion) {
   public ModelResponse {
+    // Providers sometimes send empty strings for unused optional fields.
+    message = message != null && message.isBlank() ? null : message;
+    answerQuestion = answerQuestion != null && answerQuestion.isBlank() ? null : answerQuestion;
     operations = List.copyOf(operations);
     boolean hasEdits = !operations.isEmpty();
     boolean hasMessage = message != null;
@@ -45,6 +48,20 @@ public record ModelResponse(
         false,
         "required",
         List.of("operations"),
+        "oneOf",
+        List.of(
+            Map.of(
+                "required", List.of("message"),
+                "properties",
+                    Map.of(
+                        "message", Map.of("type", "string", "minLength", 1),
+                        "operations", Map.of("maxItems", 0),
+                        "answerQuestion", Map.of("type", "null"))),
+            Map.of(
+                "properties",
+                Map.of(
+                    "message", Map.of("type", "null"),
+                    "operations", Map.of("minItems", 1)))),
         "properties",
         Map.of(
             "message",

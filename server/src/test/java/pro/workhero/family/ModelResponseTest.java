@@ -74,6 +74,25 @@ class ModelResponseTest {
   }
 
   @Test
+  void selfIntroductionAcceptsOmittedNullOrBlankOptionalFields() throws Exception {
+    for (var optionalFields :
+        List.of(
+            "",
+            ",\"message\":null,\"answerQuestion\":null",
+            ",\"message\":\"\",\"answerQuestion\":\"  \"")) {
+      var response =
+          read(
+              "{\"operations\":[{\"type\":\"create_person\","
+                  + "\"ref\":\"@chirag\",\"name\":\"Chirag\"}]"
+                  + optionalFields
+                  + "}");
+      assertEquals(List.of(new Plan.CreatePerson("@chirag", "Chirag")), response.operations());
+      assertNull(response.message());
+      assertNull(response.answerQuestion());
+    }
+  }
+
+  @Test
   void enforcesLimitsAtBoundary() throws Exception {
     var input = json.createObjectNode();
     input.putArray("operations");
