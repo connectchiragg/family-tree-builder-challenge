@@ -9,17 +9,12 @@ Build and edit a family tree through chat. React displays the tree; Java 21 / Sp
 ```sh
 git clone --branch feat/java-family-tree https://github.com/connectchiragg/family-tree-builder-challenge.git
 cd family-tree-builder-challenge
-npm install
-cp server/.env.example server/.env
+./start.sh
 ```
 
-Edit `server/.env` and set `ANTHROPIC_API_KEY` to your **OpenRouter API key**. Keep the supplied base URL and model defaults. The environment file is ignored by Git; never put the key in frontend code.
+The script installs Node dependencies, prompts for your **OpenRouter API key** only when absent, and starts both services. Key entry is hidden and saved in Git-ignored `server/.env`; existing configuration is preserved. Maven downloads backend dependencies on startup. Java, Maven, and Node must already be installed.
 
-From the repository root:
-
-```sh
-npm run dev
-```
+Run `./start.sh` again for subsequent starts, or `npm run dev` to skip dependency installation.
 
 Open **http://localhost:5173**. This starts both the frontend and Java backend (port **3001**). Stop them with **Ctrl+C**. Check backend health at http://localhost:3001/api/health.
 
