@@ -42,7 +42,7 @@ class FamilyStoreTest {
   }
 
   Relationship parent(Person a, Person b) {
-    return new Relationship("parent", a.id(), b.id());
+    return new Relationship(Family.RelationshipKind.PARENT, a.id(), b.id());
   }
 
   // Fixtures use the same batch entry point as the application.
@@ -102,14 +102,23 @@ class FamilyStoreTest {
     var d = create("D");
     add(parent(a, b));
     add(parent(b, c));
-    assertEquals("CYCLE_DETECTED", assertThrows(Invalid.class, () -> add(parent(c, a))).code);
-    assertEquals("SELF_RELATIONSHIP", assertThrows(Invalid.class, () -> add(parent(a, a))).code);
+    assertEquals(
+        "CYCLE_DETECTED",
+        assertThrows(InvalidFamilyOperationException.class, () -> add(parent(c, a))).code);
+    assertEquals(
+        "SELF_RELATIONSHIP",
+        assertThrows(InvalidFamilyOperationException.class, () -> add(parent(a, a))).code);
     assertEquals(
         "PERSON_NOT_FOUND",
-        assertThrows(Invalid.class, () -> add(new Relationship("parent", "missing", a.id()))).code);
+        assertThrows(
+                InvalidFamilyOperationException.class,
+                () -> add(new Relationship(Family.RelationshipKind.PARENT, "missing", a.id())))
+            .code);
     add(parent(a, c));
     add(parent(a, c));
-    assertEquals("PARENT_LIMIT", assertThrows(Invalid.class, () -> add(parent(d, c))).code);
+    assertEquals(
+        "PARENT_LIMIT",
+        assertThrows(InvalidFamilyOperationException.class, () -> add(parent(d, c))).code);
     assertEquals(3, store.graph().parentEdges().size());
   }
 
@@ -118,11 +127,13 @@ class FamilyStoreTest {
     var a = create("A");
     var b = create("B");
     var c = create("C");
-    add(new Relationship("spouse", a.id(), b.id()));
-    add(new Relationship("spouse", b.id(), a.id()));
+    add(new Relationship(Family.RelationshipKind.SPOUSE, a.id(), b.id()));
+    add(new Relationship(Family.RelationshipKind.SPOUSE, b.id(), a.id()));
     assertEquals(1, store.graph().spouseEdges().size());
     assertTrue(store.graph().parentEdges().isEmpty());
-    assertThrows(Invalid.class, () -> add(new Relationship("spouse", a.id(), c.id())));
+    assertThrows(
+        InvalidFamilyOperationException.class,
+        () -> add(new Relationship(Family.RelationshipKind.SPOUSE, a.id(), c.id())));
   }
 
   @Test
@@ -134,9 +145,9 @@ class FamilyStoreTest {
     replace(parent(a, b), parent(c, b));
     assertEquals(java.util.List.of(new ParentEdge(c.id(), b.id())), store.graph().parentEdges());
     var before = store.graph();
-    assertThrows(Invalid.class, () -> replace(parent(c, b), parent(a, a)));
+    assertThrows(InvalidFamilyOperationException.class, () -> replace(parent(c, b), parent(a, a)));
     assertEquals(before, store.graph());
-    assertThrows(Invalid.class, () -> replace(parent(a, b), parent(a, c)));
+    assertThrows(InvalidFamilyOperationException.class, () -> replace(parent(a, b), parent(a, c)));
     assertEquals(before, store.graph());
   }
 
@@ -165,7 +176,7 @@ class FamilyStoreTest {
                             try {
                               add(parent(p, child));
                               return true;
-                            } catch (Invalid e) {
+                            } catch (InvalidFamilyOperationException e) {
                               return false;
                             }
                           }))
@@ -185,7 +196,7 @@ class FamilyStoreTest {
                 java.util.List.of(
                     new Plan.CreatePerson("@a", "John"),
                     new Plan.CreatePerson("@b", "John"),
-                    new Plan.AddRelationship("parent", "@a", "@b"))));
+                    new Plan.AddRelationship(Family.RelationshipKind.PARENT, "@a", "@b"))));
     assertEquals(2, result.createdIds().size());
     assertEquals(2, find("John").size());
     assertEquals(1, result.graph().parentEdges().size());
@@ -195,13 +206,14 @@ class FamilyStoreTest {
   void invalidLaterOperationPerformsNoSqlWrites() {
     org.mockito.Mockito.clearInvocations(db);
     assertThrows(
-        Invalid.class,
+        InvalidFamilyOperationException.class,
         () ->
             store.apply(
                 new Plan(
                     java.util.List.of(
                         new Plan.CreatePerson("@a", "Alice"),
-                        new Plan.AddRelationship("parent", "@a", "missing")))));
+                        new Plan.AddRelationship(
+                            Family.RelationshipKind.PARENT, "@a", "missing")))));
     assertTrue(
         org.mockito.Mockito.mockingDetails(db).getInvocations().stream()
             .noneMatch(i -> i.getMethod().getName().equals("update")));
@@ -212,20 +224,22 @@ class FamilyStoreTest {
   void batchRejectsUndeclaredReferencesAndCycles() {
     var empty = store.graph();
     assertThrows(
-        Invalid.class,
+        InvalidFamilyOperationException.class,
         () ->
             store.apply(
-                new Plan(java.util.List.of(new Plan.AddRelationship("parent", "@a", "@b")))));
+                new Plan(
+                    java.util.List.of(
+                        new Plan.AddRelationship(Family.RelationshipKind.PARENT, "@a", "@b")))));
     assertThrows(
-        Invalid.class,
+        InvalidFamilyOperationException.class,
         () ->
             store.apply(
                 new Plan(
                     java.util.List.of(
                         new Plan.CreatePerson("@a", "A"),
                         new Plan.CreatePerson("@b", "B"),
-                        new Plan.AddRelationship("parent", "@a", "@b"),
-                        new Plan.AddRelationship("parent", "@b", "@a")))));
+                        new Plan.AddRelationship(Family.RelationshipKind.PARENT, "@a", "@b"),
+                        new Plan.AddRelationship(Family.RelationshipKind.PARENT, "@b", "@a")))));
     assertEquals(empty, store.graph());
   }
 
@@ -265,7 +279,7 @@ class FamilyStoreTest {
     var child = create("Child");
     add(parent(parent, john));
     add(parent(john, child));
-    add(new Relationship("spouse", john.id(), spouse.id()));
+    add(new Relationship(Family.RelationshipKind.SPOUSE, john.id(), spouse.id()));
     add(parent(parent, otherJohn));
     store.apply(new Plan(java.util.List.of(new Plan.DeletePerson(john.id()))));
     assertEquals(java.util.List.of(otherJohn), find("John"));
@@ -284,7 +298,7 @@ class FamilyStoreTest {
     var before = store.graph();
     org.mockito.Mockito.clearInvocations(db);
     assertThrows(
-        Invalid.class,
+        InvalidFamilyOperationException.class,
         () ->
             store.apply(
                 new Plan(
@@ -298,7 +312,7 @@ class FamilyStoreTest {
     assertEquals(
         "PERSON_NOT_FOUND",
         assertThrows(
-                Invalid.class,
+                InvalidFamilyOperationException.class,
                 () -> store.apply(new Plan(java.util.List.of(new Plan.DeletePerson("missing")))))
             .code);
   }

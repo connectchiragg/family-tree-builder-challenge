@@ -1,6 +1,7 @@
 package pro.workhero.family;
 
 import static pro.workhero.family.Family.*;
+import static pro.workhero.family.InvalidFamilyOperationException.require;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -96,7 +97,9 @@ public class RequestHistory {
       // An applied request retains its durable fallback, even if communication fails.
       db.update(
           "UPDATE request_history SET status='failed', error_code=?, duration_ms=?, updated_at=? WHERE request_id=? AND status='processing'",
-          error instanceof Invalid invalid ? invalid.code : "REQUEST_FAILED",
+          error instanceof InvalidFamilyOperationException invalid
+              ? invalid.code
+              : "REQUEST_FAILED",
           System.currentTimeMillis() - started,
           System.currentTimeMillis(),
           id);

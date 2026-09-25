@@ -14,18 +14,12 @@ public final class Family {
   public record Graph(
       List<Person> people, List<ParentEdge> parentEdges, List<SpouseEdge> spouseEdges) {}
 
-  public record Relationship(String kind, String fromId, String toId) {}
-
-  public static final class Invalid extends RuntimeException {
-    public final String code;
-
-    public Invalid(String code, String message) {
-      super(message);
-      this.code = code;
-    }
+  public enum RelationshipKind {
+    @com.fasterxml.jackson.annotation.JsonProperty("parent")
+    PARENT,
+    @com.fasterxml.jackson.annotation.JsonProperty("spouse")
+    SPOUSE
   }
 
-  public static void require(boolean condition, String code, String message) {
-    if (!condition) throw new Invalid(code, message);
-  }
+  public record Relationship(RelationshipKind kind, String fromId, String toId) {}
 }

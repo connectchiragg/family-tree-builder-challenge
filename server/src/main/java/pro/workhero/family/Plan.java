@@ -1,11 +1,15 @@
 package pro.workhero.family;
 
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import java.util.List;
+import pro.workhero.family.Family.RelationshipKind;
 
 /** A complete turn's mutations. New references start with @; existing references are IDs. */
-public record Plan(List<Operation> operations) {
+public record Plan(@NotNull @Size(min = 1, max = 40) List<@NotNull @Valid Operation> operations) {
   @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
   @JsonSubTypes({
     @JsonSubTypes.Type(value = CreatePerson.class, name = "create_person"),
@@ -23,17 +27,68 @@ public record Plan(List<Operation> operations) {
           RemoveRelationship,
           ReplaceRelationship {}
 
-  public record CreatePerson(String ref, String name) implements Operation {}
+  public record CreatePerson(
+      @NotBlank @Pattern(regexp = "^@[A-Za-z][A-Za-z0-9_-]{0,39}$") String ref,
+      @NotBlank @Size(max = 120) String name)
+      implements Operation {}
 
-  public record DeletePerson(String person) implements Operation {}
+  public record DeletePerson(
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String person)
+      implements Operation {}
 
-  public record RenamePerson(String person, String name) implements Operation {}
+  public record RenamePerson(
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String person,
+      @NotBlank @Size(max = 120) String name)
+      implements Operation {}
 
-  public record AddRelationship(String kind, String from, String to) implements Operation {}
+  public record AddRelationship(
+      @NotNull RelationshipKind kind,
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String from,
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String to)
+      implements Operation {}
 
-  public record RemoveRelationship(String kind, String from, String to) implements Operation {}
+  public record RemoveRelationship(
+      @NotNull RelationshipKind kind,
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String from,
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String to)
+      implements Operation {}
 
   public record ReplaceRelationship(
-      String oldKind, String oldFrom, String oldTo, String newKind, String newFrom, String newTo)
+      @NotNull RelationshipKind oldKind,
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String oldFrom,
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String oldTo,
+      @NotNull RelationshipKind newKind,
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String newFrom,
+      @JsonPropertyDescription("Exact person ID or declared @ref; never a name")
+          @NotBlank
+          @Size(max = 120)
+          String newTo)
       implements Operation {}
 }

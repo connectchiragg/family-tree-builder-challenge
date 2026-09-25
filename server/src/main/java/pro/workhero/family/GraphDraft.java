@@ -1,6 +1,7 @@
 package pro.workhero.family;
 
 import static pro.workhero.family.Family.*;
+import static pro.workhero.family.InvalidFamilyOperationException.require;
 
 import java.util.*;
 
@@ -38,7 +39,7 @@ final class GraphDraft {
 
   void add(Relationship e) {
     validate(e);
-    if (e.kind().equals("parent")) {
+    if (e.kind() == RelationshipKind.PARENT) {
       var edge = new ParentEdge(e.fromId(), e.toId());
       if (parents.contains(edge)) return;
       require(
@@ -76,7 +77,7 @@ final class GraphDraft {
   void remove(Relationship e) {
     validate(e);
     boolean removed =
-        e.kind().equals("parent")
+        e.kind() == RelationshipKind.PARENT
             ? parents.remove(new ParentEdge(e.fromId(), e.toId()))
             : spouses.remove(ordered(e));
     require(removed, "RELATIONSHIP_NOT_FOUND", "The relationship to remove does not exist.");
@@ -100,7 +101,7 @@ final class GraphDraft {
 
   private void validate(Relationship e) {
     require(
-        e != null && ("parent".equals(e.kind()) || "spouse".equals(e.kind())),
+        e != null && e.kind() != null,
         "INVALID_INPUT",
         "Relationship kind must be parent or spouse.");
     exists(e.fromId());

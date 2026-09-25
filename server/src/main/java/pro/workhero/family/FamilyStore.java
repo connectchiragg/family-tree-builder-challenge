@@ -1,6 +1,7 @@
 package pro.workhero.family;
 
 import static pro.workhero.family.Family.*;
+import static pro.workhero.family.InvalidFamilyOperationException.require;
 
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -79,7 +80,7 @@ public class FamilyStore {
   }
 
   private Relationship edge(
-      String kind, String from, String to, Map<String, String> refs, GraphDraft draft) {
+      RelationshipKind kind, String from, String to, Map<String, String> refs, GraphDraft draft) {
     return new Relationship(kind, resolve(from, refs, draft), resolve(to, refs, draft));
   }
 

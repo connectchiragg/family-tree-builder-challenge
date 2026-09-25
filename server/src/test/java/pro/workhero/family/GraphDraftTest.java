@@ -15,7 +15,10 @@ class GraphDraftTest {
             List.of(new ParentEdge("a", "b"), new ParentEdge("b", "c")),
             List.of());
     var draft = new GraphDraft(graph);
-    var error = assertThrows(Invalid.class, () -> draft.add(new Relationship("parent", "c", "a")));
+    var error =
+        assertThrows(
+            InvalidFamilyOperationException.class,
+            () -> draft.add(new Relationship(Family.RelationshipKind.PARENT, "c", "a")));
     assertEquals("CYCLE_DETECTED", error.code);
     assertTrue(error.getMessage().contains("Ravi → Maya → Aanya"));
     assertTrue(error.getMessage().contains("Cannot make Aanya a parent of Ravi"));

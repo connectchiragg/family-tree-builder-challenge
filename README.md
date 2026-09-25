@@ -23,6 +23,7 @@ Press **Ctrl+C** to stop. Run `./start.sh` to restart.
 
 - Keys stay in ignored `server/.env`; configuration options are in `server/.env.example`.
 - SQLite creates `server/family-tree.db` automatically and preserves data across restarts.
+- Responses use Java records, generated tool schemas and Jakarta Validation; relationship kinds are enums. The configured Sonnet 4 route uses tool calling, not native strict JSON output.
 - Java validates each batch before saving atomically. Maximum 40 operations and two model calls per turn.
 - Retry uses the original request ID to prevent duplicate application of completed requests.
 - **Clear conversation** removes chat/request history, leaving the family graph intact.

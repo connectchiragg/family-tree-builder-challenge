@@ -1,6 +1,7 @@
 package pro.workhero.family;
 
 import static pro.workhero.family.Family.*;
+import static pro.workhero.family.InvalidFamilyOperationException.require;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Map;
@@ -64,8 +65,8 @@ public class Api {
     return Map.of("reply", history.reply(body.path("requestId").asText(), messages));
   }
 
-  @ExceptionHandler(Invalid.class)
-  ResponseEntity<?> invalid(Invalid e) {
+  @ExceptionHandler(InvalidFamilyOperationException.class)
+  ResponseEntity<?> invalid(InvalidFamilyOperationException e) {
     return ResponseEntity.status(e.code.startsWith("REQUEST_") ? 409 : 400)
         .body(Map.of("error", e.getMessage(), "code", e.code));
   }

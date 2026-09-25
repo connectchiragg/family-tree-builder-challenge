@@ -75,7 +75,8 @@ class RequestHistoryTest {
     changed.addObject().put("role", "user").put("content", "Different");
     assertEquals(
         "REQUEST_CONFLICT",
-        assertThrows(Family.Invalid.class, () -> history.reply("same", changed)).code);
+        assertThrows(InvalidFamilyOperationException.class, () -> history.reply("same", changed))
+            .code);
   }
 
   @Test
@@ -95,7 +96,9 @@ class RequestHistoryTest {
         assertTrue(entered.await(5, TimeUnit.SECONDS));
         assertEquals(
             "REQUEST_IN_PROGRESS",
-            assertThrows(Family.Invalid.class, () -> history.reply("same", messages())).code);
+            assertThrows(
+                    InvalidFamilyOperationException.class, () -> history.reply("same", messages()))
+                .code);
       } finally {
         release.countDown();
       }
@@ -154,7 +157,9 @@ class RequestHistoryTest {
             });
     history.reply("clear-test", messages());
     db.update("UPDATE request_history SET status='processing' WHERE request_id='clear-test'");
-    assertEquals("REQUEST_IN_PROGRESS", assertThrows(Family.Invalid.class, history::clear).code);
+    assertEquals(
+        "REQUEST_IN_PROGRESS",
+        assertThrows(InvalidFamilyOperationException.class, history::clear).code);
     db.update("UPDATE request_history SET status='completed' WHERE request_id='clear-test'");
     history.clear();
     assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM request_history", Integer.class));
