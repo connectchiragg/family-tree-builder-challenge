@@ -1,6 +1,7 @@
 export const CARD_WIDTH = 168;
 export const CARD_HEIGHT = 64;
 const GAP = 20;
+const BRANCH_GAP = 96;
 const ROW_HEIGHT = 164;
 
 // Lay out connected families separately. Spouses and co-parents share a row;
@@ -53,9 +54,11 @@ export function familyLayout({ people, parentEdges, spouseEdges }) {
     }
     const ranks = ranked || new Map(members.map(id => [id, 0]));
     const rows = groupBy([...groups.keys()], id => ranks.get(id));
-    const widthOf = ids => ids.reduce((sum, id) => sum + groups.get(id).length * (CARD_WIDTH + GAP), 0) - GAP;
+    const groupWidth = id => groups.get(id).length * (CARD_WIDTH + GAP) - GAP;
+    const widthOf = ids => ids.reduce((sum, id) => sum + groupWidth(id), 0) + Math.max(0, ids.length - 1) * BRANCH_GAP;
     const width = Math.max(CARD_WIDTH, ...[...rows.values()].map(widthOf));
     const centers = new Map();
+    let rowY = 0;
     for (const [generation, row] of [...rows.entries()].sort((a, b) => a[0] - b[0])) {
       const parentCenter = id => {
         const incoming = parents.filter(e => find(e.childId) === id).map(e => centers.get(find(e.parentId))).filter(x => x !== undefined);
@@ -74,11 +77,20 @@ export function familyLayout({ people, parentEdges, spouseEdges }) {
           if (remaining.has(partner)) { ordered.push(partner); remaining.delete(partner); }
         }
         centers.set(group, x + (ordered.length * (CARD_WIDTH + GAP) - GAP) / 2);
-        ordered.forEach(id => { positions.set(id, { x, y: generation * ROW_HEIGHT }); x += CARD_WIDTH + GAP; });
+        ordered.forEach(id => { positions.set(id, { x, y: rowY }); x += CARD_WIDTH + GAP; });
+        x += BRANCH_GAP - GAP;
       }
+      // More independent parent sets need more room for separate connector lanes.
+      const parentSets = new Map();
+      parents.filter(e => ranks.get(find(e.parentId)) === generation).forEach(e => {
+        if (!parentSets.has(e.childId)) parentSets.set(e.childId, []);
+        parentSets.get(e.childId).push(e.parentId);
+      });
+      const lanes = new Set([...parentSets.values()].map(ids => JSON.stringify(ids.sort()))).size;
+      rowY += ROW_HEIGHT + Math.max(0, lanes - 1) * 100;
     }
     families.push({ ids: members, x: offset, width });
-    offset += width + 72;
+    offset += width + 160;
   }
   return { positions, families };
 }

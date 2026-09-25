@@ -15,7 +15,7 @@ function PersonNode({ data }) {
     <span>{data.context}</span>
   </div>;
 }
-const FIT_OPTIONS = { padding: 0.18, maxZoom: 1.1 };
+const FIT_OPTIONS = { padding: 0.22, minZoom: 0.02, maxZoom: 1.1 };
 const nodeTypes = { person: PersonNode };
 function FamilyEdge({ id, data }) {
   return <BaseEdge id={id} path={data.path} style={{ stroke: "var(--accent)", strokeWidth: 1.7 }} />;
@@ -86,7 +86,7 @@ export default function GraphView({ refreshSignal }) {
     {graph.people.length === 0 ? <div className="family-empty"><strong>Your family starts here</strong><p>Tell the assistant about a person and their relationships.</p></div>
       : <>
         <div className="tree-canvas">
-          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={FIT_OPTIONS} minZoom={0.2} maxZoom={1.5}
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={FIT_OPTIONS} minZoom={0.02} maxZoom={1.5}
             nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false} elementsSelectable={false}>
             <Background gap={24} size={1} /><Controls showInteractive={false} fitViewOptions={FIT_OPTIONS} /><FitTree revision={graph} />
           </ReactFlow>

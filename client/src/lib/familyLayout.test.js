@@ -40,3 +40,11 @@ test('empty graph and duplicate names preserve identities', () => {
   const data=graph(['a','b']); data.people.forEach(p=>p.name='John');
   const result=assertLayout(data); assert.equal(result.positions.size,2);
 });
+
+test('multiple family branches reserve extra horizontal and routing space', () => {
+  const simple = assertLayout(graph(['a','b'], [parent('a','b')]));
+  const branched = assertLayout(graph(['a','b','c','d','e','f'],
+    [parent('a','c'),parent('b','d'),parent('c','e'),parent('d','e'),parent('a','f')], [spouse('c','d')]));
+  assert.ok(branched.positions.get('c').y > simple.positions.get('b').y);
+  assert.ok(Math.abs(branched.positions.get('a').x - branched.positions.get('b').x) >= CARD_WIDTH + 96);
+});
