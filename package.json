@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "dev": "bash dev.sh",
-    "dev:server": "cd server && mvn spring-boot:run",
+    "dev:server": "cd server && mvn clean spring-boot:run",
     "dev:client": "npm run dev -w client -- --open",
     "test": "npm run test -w client && cd server && mvn test"
   },
