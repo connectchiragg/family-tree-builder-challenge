@@ -187,10 +187,6 @@ body {
 .family-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 20px 24px 12px; }
 .family-toolbar h2 { margin: 0; font-size: 20px; color: var(--text-h); }
 .family-toolbar p { margin: 4px 0 0; font-size: 12px; }
-.tree-legend { display: flex; flex-wrap: wrap; gap: 18px; padding: 0 24px 14px; font-size: 12px; }
-.tree-legend span { display: flex; align-items: center; gap: 7px; }
-.tree-legend i { width: 20px; border-top: 2px solid var(--accent); }
-.tree-legend .spouse-key { border-color: #db709b; border-top-style: dashed; }
 .tree-canvas { flex: 1; min-height: 0; }
 .person-card { width: 168px; height: 64px; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel-bg); box-shadow: 0 3px 12px #0001; text-align: center; }
 .person-card strong { color: var(--text-h); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -205,5 +201,4 @@ body {
 .family-empty p { max-width: 32ch; }
 @media (max-width: 600px) {
   .family-toolbar { padding: 12px 16px; }
-  .tree-legend { padding: 0 16px 10px; gap: 6px 14px; }
 }

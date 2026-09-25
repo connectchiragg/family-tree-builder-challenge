@@ -56,13 +56,15 @@ export default function GraphView({ refreshSignal }) {
       data: { name: p.name, context: relations.get(p.id).parents.length ? `Child of ${describe(relations.get(p.id).parents)}` : "No parents recorded" },
       width: CARD_WIDTH, height: CARD_HEIGHT,
     }));
-    const edges = familyConnectors(graph.parentEdges, positions).map(group => ({
+    const connectors = familyConnectors(graph.parentEdges, positions);
+    const edges = connectors.map(group => ({
       id: `family-${group.id}`, source: group.parents[0], target: group.children[0],
       sourceHandle: "parent", targetHandle: "child", type: "family",
       data: { path: group.path },
       ariaLabel: `${describe(group.parents)} are parents of ${describe(group.children)}`,
     }));
     graph.spouseEdges.forEach(e => {
+      if (connectors.some(group => group.parents.includes(e.personAId) && group.parents.includes(e.personBId))) return;
       const a = positions.get(e.personAId), b = positions.get(e.personBId);
       const left = a.x <= b.x ? e.personAId : e.personBId;
       const right = left === e.personAId ? e.personBId : e.personAId;
@@ -82,9 +84,8 @@ export default function GraphView({ refreshSignal }) {
     {error && <div className="chat-error" role="alert">{error}</div>}
     {graph.people.length === 0 ? <div className="family-empty"><strong>Your family starts here</strong><p>Tell the assistant about a person and their relationships.</p></div>
       : <>
-        <div className="tree-legend"><span><i className="parent-key" /> Parent to child, top to bottom</span><span><i className="spouse-key" /> Spouses</span></div>
         <div className="tree-canvas">
-          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView minZoom={0.2} maxZoom={1.5}
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={{ padding: 0.18, maxZoom: 1.1 }} minZoom={0.2} maxZoom={1.5}
             nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false} elementsSelectable={false}>
             <Background gap={24} size={1} /><Controls showInteractive={false} /><FitTree revision={graph} />
           </ReactFlow>

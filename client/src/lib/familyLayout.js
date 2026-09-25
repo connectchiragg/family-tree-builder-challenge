@@ -1,6 +1,6 @@
 export const CARD_WIDTH = 168;
 export const CARD_HEIGHT = 64;
-const GAP = 40;
+const GAP = 20;
 const ROW_HEIGHT = 164;
 
 // Lay out connected families separately. Spouses and co-parents share a row;
@@ -78,7 +78,7 @@ export function familyLayout({ people, parentEdges, spouseEdges }) {
       }
     }
     families.push({ ids: members, x: offset, width });
-    offset += width + 112;
+    offset += width + 72;
   }
   return { positions, families };
 }
