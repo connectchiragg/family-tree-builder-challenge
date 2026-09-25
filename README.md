@@ -167,10 +167,14 @@ The tests cover typed plan parsing, temporary references, duplicate names, graph
 invariants, zero SQL writes on validation rejection, transaction rollback on actual
 persistence failure, later-rename-wins behavior, and one-call clarification/two-call
 mutation behavior. Provider tests inspect `tool_choice: none` on explanation calls.
-The frontend has five layout tests plus build/lint checks.
+The frontend has eight layout/connector tests plus build/lint checks.
 
 Live verification results are recorded in the PR. The key remains only in ignored
 local `server/.env`, never in browser code or source control.
 
 To remove an accidental person, ask “Delete [name] from the tree.” Ambiguous
 names require clarification. For spelling corrections, ask to rename instead.
+
+Children with identical recorded parent sets share a parent bar, central stem
+and sibling bar. Spouse edges remain separate; this rendering does not infer
+parenthood from marriage.

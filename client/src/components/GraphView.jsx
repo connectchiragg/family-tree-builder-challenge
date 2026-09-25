@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, useNodesInitialized } from "@xyflow/react";
+import { ReactFlow, BaseEdge, Background, Controls, Handle, Position, useReactFlow, useNodesInitialized } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { familyConnectors } from "../lib/familyConnectors";
 import { fetchGraph } from "../api";
 import { familyLayout, CARD_WIDTH, CARD_HEIGHT } from "../lib/familyLayout";
 
@@ -15,6 +16,10 @@ function PersonNode({ data }) {
   </div>;
 }
 const nodeTypes = { person: PersonNode };
+function FamilyEdge({ id, data }) {
+  return <BaseEdge id={id} path={data.path} style={{ stroke: "var(--accent)", strokeWidth: 1.7 }} />;
+}
+const edgeTypes = { family: FamilyEdge };
 
 function FitTree({ revision }) {
   const { fitView } = useReactFlow();
@@ -51,11 +56,11 @@ export default function GraphView({ refreshSignal }) {
       data: { name: p.name, context: relations.get(p.id).parents.length ? `Child of ${describe(relations.get(p.id).parents)}` : "No parents recorded" },
       width: CARD_WIDTH, height: CARD_HEIGHT,
     }));
-    const edges = graph.parentEdges.map(e => ({
-      id: `parent-${e.parentId}-${e.childId}`, source: e.parentId, target: e.childId,
-      sourceHandle: "parent", targetHandle: "child", type: "smoothstep",
-      pathOptions: { borderRadius: 0 }, className: "parent-line",
-      ariaLabel: `${names.get(e.parentId)} is a parent of ${names.get(e.childId)}`,
+    const edges = familyConnectors(graph.parentEdges, positions).map(group => ({
+      id: `family-${group.id}`, source: group.parents[0], target: group.children[0],
+      sourceHandle: "parent", targetHandle: "child", type: "family",
+      data: { path: group.path },
+      ariaLabel: `${describe(group.parents)} are parents of ${describe(group.children)}`,
     }));
     graph.spouseEdges.forEach(e => {
       const a = positions.get(e.personAId), b = positions.get(e.personBId);
@@ -79,7 +84,7 @@ export default function GraphView({ refreshSignal }) {
       : <>
         <div className="tree-legend"><span><i className="parent-key" /> Parent to child, top to bottom</span><span><i className="spouse-key" /> Spouses</span></div>
         <div className="tree-canvas">
-          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.2} maxZoom={1.5}
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView minZoom={0.2} maxZoom={1.5}
             nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false} elementsSelectable={false}>
             <Background gap={24} size={1} /><Controls showInteractive={false} /><FitTree revision={graph} />
           </ReactFlow>
