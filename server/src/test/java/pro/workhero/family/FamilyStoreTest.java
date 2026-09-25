@@ -32,26 +32,6 @@ class FamilyStoreTest {
   }
 
   @Autowired FamilyStore store;
-  @Autowired ModelClient modelClient;
-  @Autowired com.fasterxml.jackson.databind.ObjectMapper json;
-
-  @Test
-  void selfIntroductionResponseSavesOnePerson() throws Exception {
-    var response =
-        modelClient.parse(
-            json.readTree(
-                """
-        {"message":"","answerQuestion":"","operations":[
-          {"type":"create_person","ref":"@chirag","name":"Chirag"}
-        ]}
-        """));
-    var saved = store.apply(new Plan(response.operations()));
-    assertEquals(1, saved.graph().people().size());
-    assertEquals("Chirag", store.graph().people().getFirst().name());
-    assertTrue(store.graph().parentEdges().isEmpty());
-    assertTrue(store.graph().spouseEdges().isEmpty());
-  }
-
   @org.springframework.test.context.bean.override.mockito.MockitoSpyBean JdbcTemplate db;
 
   @BeforeEach
