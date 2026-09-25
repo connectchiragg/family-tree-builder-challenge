@@ -29,7 +29,7 @@ Keys stay in ignored `server/.env` (see `.env.example`). SQLite creates `server/
 
 Local single-family demo, bound to loopback, with no authentication or multi-instance coordination. Up to **40 operations and two model calls per turn**, two recorded parents and one spouse per person; remarriage and half-sibling workflows are outside scope. No stale-graph rejection; model interpretation can still be wrong, and dense trees can have crossing connectors.
 
-Actuator exposes `/actuator/metrics` and `/actuator/prometheus`; the stock dashboard shows metrics, while request logs stay in the terminal. Metrics reset on restart. Alert notifications and external metrics storage are not configured.
+Actuator exposes `/actuator/metrics` and `/actuator/prometheus`; the stock dashboard shows metrics and a Logfile viewer. Logs also go to the terminal and ignored `server/logs/family-tree.log`. Metrics reset on restart. Alert notifications and external metrics storage are not configured.
 
 ## Verify
 
