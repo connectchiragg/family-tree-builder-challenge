@@ -46,6 +46,9 @@ if [[ "$ready" != true ]]; then
   exit 1
 fi
 
+if [[ "$OSTYPE" == darwin* ]]; then
+  open http://127.0.0.1:3001/admin/ || true
+fi
 echo "Opening UI at http://127.0.0.1:5173"
 ./node_modules/.bin/concurrently --kill-others "npm run dev:client" &
 ui_pid=$!

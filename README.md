@@ -24,7 +24,7 @@ Press **Ctrl+C** to stop. Run `./start.sh` to restart.
 - Java validates each batch before saving atomically. Maximum 40 operations and two model calls per turn.
 - Retry uses the original request ID to prevent duplicate application of completed requests.
 - **Clear conversation** removes chat/request history, leaving the family graph intact.
-- Metrics: `/actuator/metrics` and `/actuator/prometheus` on port 3001; request timing and logs appear in the terminal.
+- Dashboard: http://127.0.0.1:3001/admin/ (opens automatically on macOS). Raw metrics: `/actuator/metrics` and `/actuator/prometheus`; logs remain in the terminal.
 - Local, single-family demo: no authentication; metrics reset on restart and alert notifications are not configured.
 
 ## Verify

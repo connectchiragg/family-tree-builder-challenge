@@ -4,6 +4,8 @@
   <groupId>pro.workhero</groupId><artifactId>family-tree</artifactId><version>1.0.0</version>
   <properties><java.version>21</java.version></properties>
   <dependencies>
+    <dependency><groupId>de.codecentric</groupId><artifactId>spring-boot-admin-starter-server</artifactId><version>3.5.11</version></dependency>
+    <dependency><groupId>de.codecentric</groupId><artifactId>spring-boot-admin-starter-client</artifactId><version>3.5.11</version></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
     <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId></dependency>
