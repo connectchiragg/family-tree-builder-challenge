@@ -34,6 +34,9 @@ function FitTree({ revision }) {
 export default function GraphView({ refreshSignal }) {
   const [graph, setGraph] = useState({ people: [], parentEdges: [], spouseEdges: [] });
   const [error, setError] = useState(null);
+  const [query, setQuery] = useState("");
+  const [flow, setFlow] = useState(null);
+  const [focusedId, setFocusedId] = useState(null);
   const load = useCallback(async () => {
     try {
       const data = await fetchGraph();
@@ -77,16 +80,42 @@ export default function GraphView({ refreshSignal }) {
     return { nodes, edges, families };
   }, [graph]);
 
+  const matches = query.trim() ? nodes.filter(node =>
+    node.data.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    .sort((a, b) => a.data.name.localeCompare(b.data.name)) : [];
+  const focusPerson = node => {
+    flow?.setCenter(node.position.x + CARD_WIDTH / 2, node.position.y + CARD_HEIGHT / 2,
+      { zoom: 1.1, duration: 300 });
+    setFocusedId(node.id);
+    setQuery("");
+  };
+
   return <section className="graph-panel" aria-label="Family relationships">
     <div className="family-toolbar">
       <div><h2>Your family</h2><p>{graph.people.length} people · {families.length} family {families.length === 1 ? "group" : "groups"}</p></div>
-
+      <div className="person-search" onKeyDown={event => {
+        if (event.key === "Escape") setQuery("");
+      }}>
+        <input type="search" aria-label="Search people" placeholder="Search people…"
+          value={query} onChange={event => setQuery(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === "Enter" && matches.length === 1) focusPerson(matches[0]);
+          }} />
+        {query.trim() && <div className="person-search-results" aria-label="Matching people">
+          {matches.length ? matches.map((node, index) => <button type="button" key={node.id}
+            onClick={() => focusPerson(node)}>
+            <strong>{node.data.name}</strong><span>{node.data.context}</span>
+            {matches.filter(other => other.data.name === node.data.name).length > 1 &&
+              <small>Match {index + 1}</small>}
+          </button>) : <p role="status">No people found.</p>}
+        </div>}
+      </div>
     </div>
     {error && <div className="chat-error" role="alert">{error}</div>}
     {graph.people.length === 0 ? <div className="family-empty"><strong>Your family starts here</strong><p>Tell the assistant about a person and their relationships.</p></div>
       : <>
         <div className="tree-canvas">
-          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={FIT_OPTIONS} minZoom={0.02} maxZoom={1.5}
+          <ReactFlow onInit={setFlow} nodes={nodes.map(node => ({ ...node, className: node.id === focusedId ? "search-highlight" : "" }))} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={FIT_OPTIONS} minZoom={0.02} maxZoom={1.5}
             nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false} elementsSelectable={false}>
             <Background gap={24} size={1} /><Controls showInteractive={false} fitViewOptions={FIT_OPTIONS} /><FitTree revision={graph} />
           </ReactFlow>
